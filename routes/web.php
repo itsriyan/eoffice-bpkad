@@ -111,3 +111,6 @@ Route::middleware('auth')->group(function () {
 // WhatsApp webhook (no auth middleware)
 Route::get('/webhook/whatsapp', [WhatsappWebhookController::class, 'verify']);
 Route::post('/webhook/whatsapp', [WhatsappWebhookController::class, 'handle']);
+Auth::routes();
+
+Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
