@@ -140,5 +140,8 @@
     "Delete this grade?": "Hapus golongan ini?",
     "Failed to delete grade": "Gagal menghapus golongan",
     "Delete this work unit?": "Hapus unit kerja ini?",
-    "Failed to delete work unit": "Gagal menghapus unit kerja"
+    "Failed to delete work unit": "Gagal menghapus unit kerja",
+    "profile": "Profil",
+    "account_settings": "Pengaturan Akun",
+    "search": "Cari"
 }

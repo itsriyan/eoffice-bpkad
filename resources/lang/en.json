@@ -140,5 +140,8 @@
     "Delete this grade?": "Delete this grade?",
     "Failed to delete grade": "Failed to delete grade",
     "Delete this work unit?": "Delete this work unit?",
-    "Failed to delete work unit": "Failed to delete work unit"
+    "Failed to delete work unit": "Failed to delete work unit",
+    "profile": "Profile",
+    "account_settings": "Account Settings",
+    "search": "Search"
 }
