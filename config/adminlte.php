@@ -138,6 +138,7 @@ return [
     'usermenu_header_class' => 'bg-primary',
     'usermenu_image' => false,
     'usermenu_desc' => false,
+    // Ensure user menu goes directly to /profile (no ID appended)
     'usermenu_profile_url' => 'profile',
 
     /*
@@ -263,7 +264,8 @@ return [
     'register_url' => 'register',
     'password_reset_url' => 'password/reset',
     'password_email_url' => 'password/email',
-    'profile_url' => true,
+    // Use custom profile route name/path instead of default /profile/{id}
+    'profile_url' => 'profile',
     'disable_darkmode_routes' => false,
 
     /*

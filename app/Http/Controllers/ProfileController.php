@@ -47,7 +47,7 @@ class ProfileController extends Controller
 
         Employee::updateOrCreate(['user_id' => $user->id], $empPayload);
 
-        return redirect()->route('profile.show')->with('success', __('Profile updated'));
+        return redirect()->route('profile')->with('success', __('Profile updated'));
     }
 
     public function changePassword(PasswordChangeRequest $request)
@@ -57,6 +57,6 @@ class ProfileController extends Controller
         $user->update([
             'password' => Hash::make($data['new_password'])
         ]);
-        return redirect()->route('profile.show')->with('success', __('Password changed'));
+        return redirect()->route('profile')->with('success', __('Password changed'));
     }
 }

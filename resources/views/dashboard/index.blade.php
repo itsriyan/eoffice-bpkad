@@ -158,7 +158,7 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h3 class="dashboard-section-title"><i class="fas fa-chart-line"></i>
                         {{ __('7-Day Letter Throughput') }}</h3>
-                    <span class="badge bg-primary" style="font-size:.65rem">RAW</span>
+                    <span class="badge bg-primary" style="font-size:.65rem">{{ __('RAW') }}</span>
                 </div>
                 <div class="card-body">
                     <div class="sparkline mb-3">
@@ -174,7 +174,8 @@
                         @foreach ($dailySeries as $d)
                             <div class="border rounded px-2 py-1" style="font-size:.65rem">
                                 {{ \Carbon\Carbon::parse($d['date'])->format('d M') }}:
-                                <strong>{{ $d['count'] }}</strong></div>
+                                <strong>{{ $d['count'] }}</strong>
+                            </div>
                         @endforeach
                     </div>
                     <hr>
