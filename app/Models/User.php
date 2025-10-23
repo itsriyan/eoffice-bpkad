@@ -58,7 +58,7 @@ class User extends Authenticatable implements AuditableContract
 
     public function adminlte_profile_url()
     {
-        return 'profile/' . $this->id;
+        return 'profile';
     }
 
     public function adminlte_image()

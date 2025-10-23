@@ -265,7 +265,7 @@ return [
     'password_reset_url' => 'password/reset',
     'password_email_url' => 'password/email',
     // Use custom profile route name/path instead of default /profile/{id}
-    'profile_url' => 'profile',
+    'profile_url' => true,
     'disable_darkmode_routes' => false,
 
     /*
