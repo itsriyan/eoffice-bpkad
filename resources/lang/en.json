@@ -105,5 +105,12 @@
     "Implement aging metrics (avg hours disposed → received → completed).": "Implement aging metrics (avg hours disposed → received → completed).",
     "RAW": "RAW",
     "Profile updated": "Profile updated",
-    "Password changed": "Password changed"
+    "Password changed": "Password changed",
+    "Master Data": "Master Data",
+    "Employees": "Employees",
+    "Users": "Users",
+    "Roles": "Roles",
+    "Permissions": "Permissions",
+    "Integration Logs": "Integration Logs",
+    "Access Control": "Access Control"
 }

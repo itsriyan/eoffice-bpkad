@@ -105,5 +105,12 @@
     "Implement aging metrics (avg hours disposed → received → completed).": "Implementasikan metrik aging (rata-rata jam disposisi → diterima → selesai).",
     "RAW": "MENTAH",
     "Profile updated": "Profil diperbarui",
-    "Password changed": "Password diubah"
+    "Password changed": "Password diubah",
+    "Master Data": "Data Master",
+    "Employees": "Pegawai",
+    "Users": "Pengguna",
+    "Roles": "Peran",
+    "Permissions": "Izin",
+    "Integration Logs": "Log Integrasi",
+    "Access Control": "Kontrol Akses"
 }

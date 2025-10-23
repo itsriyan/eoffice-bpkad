@@ -332,18 +332,7 @@ return [
             'type' => 'sidebar-menu-search',
             'text' => 'search',
         ],
-        [
-            'text' => 'blog',
-            'url' => 'admin/blog',
-            'can' => 'manage-blog',
-        ],
-        [
-            'text' => 'pages',
-            'url' => 'admin/pages',
-            'icon' => 'far fa-fw fa-file',
-            'label' => 4,
-            'label_color' => 'success',
-        ],
+
         ['header' => 'account_settings'],
         [
             'text' => 'profile',
@@ -351,58 +340,61 @@ return [
             'icon' => 'fas fa-fw fa-user',
         ],
         [
-            'text' => 'multilevel',
-            'icon' => 'fas fa-fw fa-share',
+            'text' => 'Users',
+            'url' => 'users',
+            'icon' => 'fas fa-users',
+            'can' => 'user.view',
+        ],
+        [
+            'text' => 'Access Control',
+            'icon' => 'fas fa-shield-alt',
             'submenu' => [
                 [
-                    'text' => 'level_one',
-                    'url' => '#',
+                    'text' => 'Roles',
+                    'url' => 'roles',
+                    'icon' => 'fas fa-user-shield',
+                    'can' => 'role.view',
                 ],
                 [
-                    'text' => 'level_one',
-                    'url' => '#',
-                    'submenu' => [
-                        [
-                            'text' => 'level_two',
-                            'url' => '#',
-                        ],
-                        [
-                            'text' => 'level_two',
-                            'url' => '#',
-                            'submenu' => [
-                                [
-                                    'text' => 'level_three',
-                                    'url' => '#',
-                                ],
-                                [
-                                    'text' => 'level_three',
-                                    'url' => '#',
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                [
-                    'text' => 'level_one',
-                    'url' => '#',
+                    'text' => 'Permissions',
+                    'url' => 'permissions',
+                    'icon' => 'fas fa-key',
+                    'can' => 'permission.view',
                 ],
             ],
         ],
-        ['header' => 'labels'],
         [
-            'text' => 'important',
-            'icon_color' => 'red',
-            'url' => '#',
+            'text' => 'Incoming Letters',
+            'url' => 'incoming-letters',
+            'icon' => 'fas fa-envelope-open-text',
+            'can' => 'incoming_letter.view',
         ],
         [
-            'text' => 'warning',
-            'icon_color' => 'yellow',
-            'url' => '#',
+            'text' => 'Master Data',
+            'icon' => 'fas fa-database',
+            'submenu' => [
+                [
+                    'text' => 'Employees',
+                    'url' => 'employees',
+                    'can' => 'employee.view',
+                ],
+                [
+                    'text' => 'Grades',
+                    'url' => 'grades',
+                    'can' => 'grade.view',
+                ],
+                [
+                    'text' => 'Work Units',
+                    'url' => 'work-units',
+                    'can' => 'work_unit.view',
+                ],
+            ],
         ],
         [
-            'text' => 'information',
-            'icon_color' => 'cyan',
+            'text' => 'Integration Logs',
             'url' => '#',
+            'icon' => 'fas fa-link',
+            'can' => 'integration_log.view',
         ],
     ],
 
