@@ -21,7 +21,7 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            @can('create work_units')
+            @can('work_unit.create')
                 <a href="{{ route('work_units.create') }}" class="btn btn-success btn-sm"><i class="fas fa-plus"></i>
                     {{ __('Add Work Unit') }}</a>
             @endcan
@@ -43,7 +43,7 @@
 @section('js')
     <script>
         function deleteWorkUnit(id) {
-            if (confirm('Delete this work unit?')) {
+            if (confirm(@json(__('Delete this work unit?')))) {
                 $.ajax({
                     url: '{{ url('work-units') }}/' + id,
                     type: 'DELETE',
@@ -51,7 +51,7 @@
                         _token: '{{ csrf_token() }}'
                     },
                     success: () => $('#work-units-table').DataTable().ajax.reload(),
-                    error: () => alert('Failed to delete work unit')
+                    error: () => alert(@json(__('Failed to delete work unit')))
                 });
             }
         }

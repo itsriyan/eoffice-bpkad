@@ -1,5 +1,5 @@
 @extends('layouts.master')
-@section('title', 'Roles')
+@section('title', __('Roles'))
 @section('content_header')
     <section class="content-header p-1">
         <div class="container-fluid">
@@ -9,8 +9,8 @@
                 </div>
                 <div class="col-sm-6">
                     <ol class="breadcrumb float-sm-right">
-                        <li class="breadcrumb-item"><a href="/">Home</a></li>
-                        <li class="breadcrumb-item active">Roles</li>
+                        <li class="breadcrumb-item"><a href="/">{{ __('Home') }}</a></li>
+                        <li class="breadcrumb-item active">{{ __('Roles') }}</li>
                     </ol>
                 </div>
             </div>
@@ -21,18 +21,19 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            @can('create roles')
-                <a href="{{ route('roles.create') }}" class="btn btn-success btn-sm"><i class="fas fa-plus"></i> Add Role</a>
+            @can('role.create')
+                <a href="{{ route('roles.create') }}" class="btn btn-success btn-sm"><i class="fas fa-plus"></i>
+                    {{ __('Add Role') }}</a>
             @endcan
         </div>
         <div class="card-body">
             <table id="roles-table" class="table table-bordered table-striped">
                 <thead>
                     <tr>
-                        <th>No</th>
-                        <th>Name</th>
-                        <th>Permissions</th>
-                        <th>Actions</th>
+                        <th>{{ __('No') }}</th>
+                        <th>{{ __('Name') }}</th>
+                        <th>{{ __('Permissions') }}</th>
+                        <th>{{ __('Actions') }}</th>
                     </tr>
                 </thead>
             </table>
@@ -42,7 +43,7 @@
 @section('js')
     <script>
         function deleteRole(id) {
-            if (confirm('Delete this role?')) {
+            if (confirm(@json(__('Delete this role?')))) {
                 $.ajax({
                     url: '{{ url('roles') }}/' + id,
                     type: 'DELETE',
@@ -50,7 +51,7 @@
                         _token: '{{ csrf_token() }}'
                     },
                     success: () => $('#roles-table').DataTable().ajax.reload(),
-                    error: () => alert('Failed to delete role')
+                    error: () => alert(@json(__('Failed to delete role')))
                 });
             }
         }

@@ -1,6 +1,6 @@
 @extends('layouts.master')
 
-@section('title', 'List Users')
+@section('title', __('List Users'))
 
 @section('content_header')
     <section class="content-header p-1">
@@ -11,8 +11,8 @@
                 </div>
                 <div class="col-sm-6">
                     <ol class="breadcrumb float-sm-right">
-                        <li class="breadcrumb-item active"><a href="/">Home</a></li>
-                        <li class="breadcrumb-item active"><a href="/users">Users</a></li>
+                        <li class="breadcrumb-item active"><a href="/">{{ __('Home') }}</a></li>
+                        <li class="breadcrumb-item active"><a href="/users">{{ __('Users') }}</a></li>
                     </ol>
                 </div>
             </div>
@@ -24,9 +24,9 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            @can('create users')
+            @can('user.create')
                 <a href="{{ route('users.create') }}" class="btn btn-success btn-sm">
-                    <i class="fas fa-plus"></i> Add User
+                    <i class="fas fa-plus"></i> {{ __('Add User') }}
                 </a>
             @endcan
         </div>
@@ -34,12 +34,12 @@
             <table id="users-table" class="table table-bordered table-striped">
                 <thead>
                     <tr>
-                        <th>No</th>
-                        <th>Nama</th>
-                        <th>Email</th>
-                        <th>Phone Number</th>
-                        <th>Role</th>
-                        <th>Actions</th>
+                        <th>{{ __('No') }}</th>
+                        <th>{{ __('Name') }}</th>
+                        <th>{{ __('Email') }}</th>
+                        <th>{{ __('Phone Number') }}</th>
+                        <th>{{ __('Role') }}</th>
+                        <th>{{ __('Actions') }}</th>
                     </tr>
                 </thead>
             </table>
@@ -50,7 +50,7 @@
 @section('js')
     <script>
         function deleteUser(id) {
-            if (confirm('Yakin ingin menghapus user ini?')) {
+            if (confirm(@json(__('Delete this user?')))) {
                 $.ajax({
                     url: '{{ url('users') }}/' + id,
                     type: 'DELETE',
@@ -61,7 +61,7 @@
                         $('#users-table').DataTable().ajax.reload();
                     },
                     error: function(err) {
-                        alert('Gagal menghapus user!');
+                        alert(@json(__('Failed to delete user')));
                     }
                 });
             }

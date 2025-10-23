@@ -21,7 +21,7 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            @can('create grades')
+            @can('grade.create')
                 <a href="{{ route('grades.create') }}" class="btn btn-success btn-sm"><i class="fas fa-plus"></i>
                     {{ __('Add Grade') }}</a>
             @endcan
@@ -44,7 +44,7 @@
 @section('js')
     <script>
         function deleteGrade(id) {
-            if (confirm('Delete this grade?')) {
+            if (confirm(@json(__('Delete this grade?')))) {
                 $.ajax({
                     url: '{{ url('grades') }}/' + id,
                     type: 'DELETE',
@@ -52,7 +52,7 @@
                         _token: '{{ csrf_token() }}'
                     },
                     success: () => $('#grades-table').DataTable().ajax.reload(),
-                    error: () => alert('Failed to delete grade')
+                    error: () => alert(@json(__('Failed to delete grade')))
                 });
             }
         }
