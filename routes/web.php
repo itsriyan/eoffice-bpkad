@@ -112,5 +112,3 @@ Route::middleware('auth')->group(function () {
 Route::get('/webhook/whatsapp', [WhatsappWebhookController::class, 'verify']);
 Route::post('/webhook/whatsapp', [WhatsappWebhookController::class, 'handle']);
 Auth::routes();
-
-Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
