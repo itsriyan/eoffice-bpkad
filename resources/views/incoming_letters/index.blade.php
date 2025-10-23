@@ -21,7 +21,7 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            @can('create incoming_letters')
+            @can('incoming_letter.create')
                 <a href="{{ route('incoming_letters.create') }}" class="btn btn-success btn-sm"><i class="fas fa-plus"></i>
                     {{ __('Add Incoming Letter') }}</a>
             @endcan
