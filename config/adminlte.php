@@ -340,23 +340,23 @@ return [
             'icon' => 'fas fa-fw fa-user',
         ],
         [
-            'text' => 'Users',
+            'text' => 'users',
             'url' => 'users',
             'icon' => 'fas fa-users',
             'can' => 'user.view',
         ],
         [
-            'text' => 'Access Control',
+            'text' => 'access_control',
             'icon' => 'fas fa-shield-alt',
             'submenu' => [
                 [
-                    'text' => 'Roles',
+                    'text' => 'roles',
                     'url' => 'roles',
                     'icon' => 'fas fa-user-shield',
                     'can' => 'role.view',
                 ],
                 [
-                    'text' => 'Permissions',
+                    'text' => 'permissions',
                     'url' => 'permissions',
                     'icon' => 'fas fa-key',
                     'can' => 'permission.view',
@@ -364,34 +364,34 @@ return [
             ],
         ],
         [
-            'text' => 'Incoming Letters',
+            'text' => 'incoming_letters',
             'url' => 'incoming-letters',
             'icon' => 'fas fa-envelope-open-text',
             'can' => 'incoming_letter.view',
         ],
         [
-            'text' => 'Master Data',
+            'text' => 'master_data',
             'icon' => 'fas fa-database',
             'submenu' => [
                 [
-                    'text' => 'Employees',
+                    'text' => 'employees',
                     'url' => 'employees',
                     'can' => 'employee.view',
                 ],
                 [
-                    'text' => 'Grades',
+                    'text' => 'grades',
                     'url' => 'grades',
                     'can' => 'grade.view',
                 ],
                 [
-                    'text' => 'Work Units',
+                    'text' => 'work_units',
                     'url' => 'work-units',
                     'can' => 'work_unit.view',
                 ],
             ],
         ],
         [
-            'text' => 'Integration Logs',
+            'text' => 'integration_logs',
             'url' => '#',
             'icon' => 'fas fa-link',
             'can' => 'integration_log.view',

@@ -171,5 +171,15 @@
     "Active": "Aktif",
     "Inactive": "Tidak Aktif",
     "Role Detail": "Detail Peran",
-    "Employee": "Pegawai"
+    "Employee": "Pegawai",
+    "users": "Pengguna",
+    "access_control": "Kontrol Akses",
+    "roles": "Peran",
+    "permissions": "Izin",
+    "incoming_letters": "Surat Masuk",
+    "master_data": "Data Master",
+    "employees": "Pegawai",
+    "grades": "Golongan",
+    "work_units": "Unit Kerja",
+    "integration_logs": "Log Integrasi"
 }

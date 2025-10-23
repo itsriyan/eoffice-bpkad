@@ -171,5 +171,15 @@
     "Active": "Active",
     "Inactive": "Inactive",
     "Role Detail": "Role Detail",
-    "Employee": "Employee"
+    "Employee": "Employee",
+    "users": "Users",
+    "access_control": "Access Control",
+    "roles": "Roles",
+    "permissions": "Permissions",
+    "incoming_letters": "Incoming Letters",
+    "master_data": "Master Data",
+    "employees": "Employees",
+    "grades": "Grades",
+    "work_units": "Work Units",
+    "integration_logs": "Integration Logs"
 }
