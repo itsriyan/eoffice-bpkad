@@ -253,12 +253,30 @@ class WhatsappWebhookController extends Controller
                 'to_user_id' => $userId,
                 'to_name' => $claimedUser->name,
                 'to_phone' => $claimedUser->phone_number,
+                'status' => \App\Enums\DispositionStatus::Received,
+                'received_at' => now(),
             ]);
         if ($updated === 0) {
             // Already claimed
             $claimer = $disp->claimed_by_user_id ? $disp->claimedByUser?->name : __('Tidak diketahui');
-            app(WhatsappClient::class)->sendText($from, __('Disposisi sudah diambil oleh :name', ['name' => $claimer]));
+            app(WhatsappClient::class)->sendText($from, __('Disposisi sudah diambil oleh :name.', ['name' => $claimer]));
             return;
+        }
+        // Refresh disposition instance
+        $disp->refresh();
+        // If letter status still new -> mark disposed timestamp and status
+        $letter = $disp->letter;
+        if ($letter && $letter->status === \App\Enums\IncomingLetterStatus::New) {
+            $letter->update([
+                'status' => \App\Enums\IncomingLetterStatus::Disposed,
+                'disposed_at' => now(),
+                'last_disposition' => $disp->id,
+            ]);
+        } else {
+            // Update last_disposition reference for tracking
+            if ($letter) {
+                $letter->update(['last_disposition' => $disp->id]);
+            }
         }
         DB::table('integration_logs')->insert([
             'service' => 'whatsapp-webhook',
@@ -280,7 +298,7 @@ class WhatsappWebhookController extends Controller
             'expect' => 'disposition_note',
             'disposition_id' => $disp->id,
         ]);
-        app(WhatsappClient::class)->sendText($from, __('Anda berhasil mengambil disposisi. Kirim catatan instruksi.'));
+        app(WhatsappClient::class)->sendText($from, __('Anda berhasil mengambil disposisi. Kirim catatan instruksi (balas dengan teks).'));
     }
 
     private function requestArchiveNote(?string $from, array $message): void

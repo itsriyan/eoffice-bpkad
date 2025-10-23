@@ -68,5 +68,14 @@
     "WhatsApp message queued": "WhatsApp message queued",
     "Failed to send WhatsApp message": "Failed to send WhatsApp message",
     "WhatsApp retry scheduled": "WhatsApp retry scheduled",
-    "WhatsApp template not configured": "WhatsApp template not configured"
+    "WhatsApp template not configured": "WhatsApp template not configured",
+    "Disposition History": "Disposition History",
+    "No dispositions recorded.": "No dispositions recorded.",
+    "Not set": "Not set",
+    "Instruction / Note": "Instruction / Note",
+    "You successfully claimed the disposition. Send instruction note (reply with text).": "You successfully claimed the disposition. Send instruction note (reply with text).",
+    "Disposition already claimed by :name.": "Disposition already claimed by :name.",
+    "Disposition not found.": "Disposition not found.",
+    "No disposition available to claim.": "No disposition available to claim.",
+    "Number not registered as employee.": "Number not registered as employee."
 }

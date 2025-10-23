@@ -67,4 +67,57 @@
             @endcan
         </div>
     </div>
+
+    <div class="card mt-3">
+        <div class="card-header">
+            <h3 class="card-title">{{ __('Disposition History') }}</h3>
+        </div>
+        <div class="card-body p-0">
+            @php($dispositions = $incoming_letter->dispositions()->orderBy('sequence')->orderBy('id')->get())
+            @if ($dispositions->isEmpty())
+                <div class="p-3 text-muted">{{ __('No dispositions recorded.') }}</div>
+            @else
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>{{ __('Sequence') }}</th>
+                                <th>{{ __('Target') }}</th>
+                                <th>{{ __('Status') }}</th>
+                                <th>{{ __('Claimed At') }}</th>
+                                <th>{{ __('Received At') }}</th>
+                                <th>{{ __('Followed Up At') }}</th>
+                                <th>{{ __('Completed At') }}</th>
+                                <th>{{ __('Instruction / Note') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($dispositions as $d)
+                                <tr>
+                                    <td>{{ $loop->iteration }}</td>
+                                    <td>{{ $d->sequence }}</td>
+                                    <td>
+                                        @if ($d->to_name)
+                                            {{ $d->to_name }}
+                                        @elseif($d->to_unit_name)
+                                            {{ $d->to_unit_name }}
+                                        @else
+                                            <span class="text-muted">{{ __('Not set') }}</span>
+                                        @endif
+                                    </td>
+                                    <td>{{ $d->status?->label() }}</td>
+                                    <td>{{ $d->claimed_at }}</td>
+                                    <td>{{ $d->received_at }}</td>
+                                    <td>{{ $d->followed_up_at }}</td>
+                                    <td>{{ $d->completed_at }}</td>
+                                    <td>{{ $d->instruction ?? ($d->rejection_reason ?? '-') }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </div>
+    </div>
 @endsection

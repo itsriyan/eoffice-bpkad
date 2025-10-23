@@ -68,5 +68,14 @@
     "WhatsApp message queued": "Pesan WhatsApp dalam antrian",
     "Failed to send WhatsApp message": "Gagal mengirim pesan WhatsApp",
     "WhatsApp retry scheduled": "Percobaan ulang WhatsApp dijadwalkan",
-    "WhatsApp template not configured": "Template WhatsApp belum dikonfigurasi"
+    "WhatsApp template not configured": "Template WhatsApp belum dikonfigurasi",
+    "Disposition History": "Riwayat Disposisi",
+    "No dispositions recorded.": "Belum ada disposisi.",
+    "Not set": "Belum diatur",
+    "Instruction / Note": "Instruksi / Catatan",
+    "You successfully claimed the disposition. Send instruction note (reply with text).": "Anda berhasil mengambil disposisi. Kirim catatan instruksi (balas dengan teks).",
+    "Disposition already claimed by :name.": "Disposisi sudah diambil oleh :name.",
+    "Disposition not found.": "Disposisi tidak ditemukan.",
+    "No disposition available to claim.": "Tidak ada disposisi untuk diambil.",
+    "Number not registered as employee.": "Nomor tidak terdaftar sebagai pegawai."
 }

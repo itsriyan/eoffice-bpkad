@@ -10,11 +10,10 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\GradeController;
 use App\Http\Controllers\WorkUnitController;
 use App\Http\Controllers\WhatsappWebhookController;
+use App\Http\Controllers\DashboardController;
 
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
 Route::get('/locale/{locale}', function ($locale) {
     $available = ['id', 'en'];
