@@ -1,5 +1,5 @@
 @extends('layouts.master')
-@section('title', 'Edit Role')
+@section('title', __('Edit Role'))
 @section('content_header')
     <section class="content-header p-1">
         <div class="container-fluid">
@@ -9,9 +9,9 @@
                 </div>
                 <div class="col-sm-6">
                     <ol class="breadcrumb float-sm-right">
-                        <li class="breadcrumb-item"><a href="/">Home</a></li>
-                        <li class="breadcrumb-item"><a href="{{ route('roles.index') }}">Roles</a></li>
-                        <li class="breadcrumb-item active">Edit</li>
+                        <li class="breadcrumb-item"><a href="/">{{ __('Home') }}</a></li>
+                        <li class="breadcrumb-item"><a href="{{ route('roles.index') }}">{{ __('Roles') }}</a></li>
+                        <li class="breadcrumb-item active">{{ __('Edit') }}</li>
                     </ol>
                 </div>
             </div>
@@ -22,19 +22,19 @@
     @include('layouts.alerts')
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Edit Role</h3>
+            <h3 class="card-title">{{ __('Edit Role') }}</h3>
         </div>
         <form method="POST" action="{{ route('roles.update', $role->id) }}">
             @csrf
             @method('PUT')
             <div class="card-body">
                 <div class="form-group">
-                    <label>Role Name</label>
+                    <label>{{ __('Role Name') }}</label>
                     <input type="text" name="name" value="{{ old('name', $role->name) }}" class="form-control"
                         required>
                 </div>
                 <div class="form-group">
-                    <label>Permissions</label>
+                    <label>{{ __('Permissions') }}</label>
                     <div class="row">
                         @foreach ($permissions as $perm)
                             <div class="col-md-3 col-sm-4 col-6 mb-1">
@@ -51,8 +51,8 @@
             </div>
             <div class="card-footer d-flex justify-content-between">
                 <a href="{{ route('roles.index') }}" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i>
-                    Back</a>
-                <button class="btn btn-primary btn-sm"><i class="fas fa-save"></i> Update</button>
+                    {{ __('Back') }}</a>
+                <button class="btn btn-primary btn-sm"><i class="fas fa-save"></i> {{ __('Update') }}</button>
             </div>
         </form>
     </div>
