@@ -14,7 +14,7 @@ class UserController extends Controller
 {
     public function index(Request $request)
     {
-        if (!user()->hasPermissionTo('view users')) abort(403);
+        if (!user()->can('user.view')) abort(403);
         try {
             if ($request->ajax()) {
                 $users = User::query()->with(['roles', 'employee']);
@@ -35,15 +35,15 @@ class UserController extends Controller
                         $editUrl = route('users.edit', $user->id);
                         $showUrl = route('users.show', $user->id);
                         $buttons = '<span class="d-inline-flex">';
-                        if (user()->hasPermissionTo('view users')) {
+                        if (user()->can('user.view')) {
                             $buttons .= '<a href="' . $showUrl . '" class="btn btn-sm btn-secondary mr-1" title="Detail">'
                                 . '<i class="fas fa-eye"></i></a>';
                         }
-                        if (user()->hasPermissionTo('edit users')) {
+                        if (user()->can('user.edit')) {
                             $buttons .= '<a href="' . $editUrl . '" class="btn btn-sm btn-info mr-1" title="Edit">'
                                 . '<i class="fas fa-edit"></i></a>';
                         }
-                        if (user()->hasPermissionTo('delete users')) {
+                        if (user()->can('user.delete')) {
                             $buttons .= '<button class="btn btn-sm btn-danger" title="Delete" onclick="deleteUser(' . $user->id . ')">'
                                 . '<i class="fas fa-trash"></i></button>';
                         }
