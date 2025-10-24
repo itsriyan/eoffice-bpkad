@@ -9,7 +9,7 @@ class IncomingLetterUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('edit incoming_letters');
+        return user()->can('incoming_letter.edit');
     }
 
     public function rules(): array

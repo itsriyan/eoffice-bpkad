@@ -8,7 +8,7 @@ class WorkUnitUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('edit work_units');
+        return user()->can('work_unit.edit');
     }
 
     public function rules(): array

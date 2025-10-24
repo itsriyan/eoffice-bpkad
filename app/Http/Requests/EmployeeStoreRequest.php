@@ -8,7 +8,8 @@ class EmployeeStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()?->can('create employees') ?? false;
+        // Updated to dot-style permission naming
+        return user()?->can('employee.create') ?? false;
     }
 
     public function rules(): array

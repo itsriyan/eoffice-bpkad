@@ -8,7 +8,7 @@ class GradeUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('edit grades');
+        return user()->can('grade.edit');
     }
 
     public function rules(): array

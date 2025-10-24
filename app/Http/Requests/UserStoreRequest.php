@@ -8,7 +8,7 @@ class UserStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()?->can('create users') ?? false;
+        return user()?->can('user.create') ?? false;
     }
 
     public function rules(): array

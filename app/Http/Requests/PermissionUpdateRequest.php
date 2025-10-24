@@ -8,7 +8,7 @@ class PermissionUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('edit permissions');
+        return user()->can('permission.edit');
     }
 
     public function rules(): array

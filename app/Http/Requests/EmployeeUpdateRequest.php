@@ -9,7 +9,8 @@ class EmployeeUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()?->can('edit employees') ?? false;
+        // Updated to dot-style permission naming
+        return user()?->can('employee.edit') ?? false;
     }
 
     public function rules(): array

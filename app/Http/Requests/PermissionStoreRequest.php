@@ -8,7 +8,7 @@ class PermissionStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('create permissions');
+        return user()->can('permission.create');
     }
 
     public function rules(): array

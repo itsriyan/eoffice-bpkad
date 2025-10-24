@@ -8,7 +8,7 @@ class WorkUnitStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('create work_units');
+        return user()->can('work_unit.create');
     }
 
     public function rules(): array

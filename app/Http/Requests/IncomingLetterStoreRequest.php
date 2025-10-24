@@ -8,7 +8,7 @@ class IncomingLetterStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('create incoming_letters');
+        return user()->can('incoming_letter.create');
     }
 
     public function rules(): array

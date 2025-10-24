@@ -9,7 +9,7 @@ class UserUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()?->can('edit users') ?? false;
+        return user()?->can('user.edit') ?? false;
     }
 
     public function rules(): array

@@ -8,7 +8,7 @@ class GradeStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return user()->can('create grades');
+        return user()->can('grade.create');
     }
 
     public function rules(): array
