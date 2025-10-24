@@ -349,7 +349,7 @@ return [
             'can' => 'user.view',
         ],
         [
-            'text' => 'Akses Kontrol',
+            'text' => 'Access Management',
             'icon' => 'fas fa-shield-alt',
             'can' => 'role.view',
             'submenu' => [
@@ -378,19 +378,22 @@ return [
             'icon' => 'fas fa-database',
             'submenu' => [
                 [
-                    'text' => 'employees',
+                    'text' => 'Pegawai',
                     'url' => 'employees',
                     'can' => 'employee.view',
+                    'icon' => 'fas fa-id-card',
                 ],
                 [
-                    'text' => 'grades',
+                    'text' => 'Golongan',
                     'url' => 'grades',
                     'can' => 'grade.view',
+                    'icon' => 'fas fa-layer-group',
                 ],
                 [
-                    'text' => 'work_units',
+                    'text' => 'Unit Kerja',
                     'url' => 'work-units',
                     'can' => 'work_unit.view',
+                    'icon' => 'fas fa-sitemap',
                 ],
             ],
         ],
