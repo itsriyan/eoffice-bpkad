@@ -66,18 +66,11 @@ class IncomingLetterController extends Controller
     public function store(IncomingLetterStoreRequest $request)
     {
         $data = $request->validated();
-        $archiveExternalId = null;
-        $archiveViewPath = null;
-        // Upload file locally first
+        // Direct upload to external archive without local storage
         if ($request->hasFile('primary_file')) {
             $file = $request->file('primary_file');
-            $path = $file->store('incoming_letters', 'private');
-            $data['primary_file'] = $path;
-            $data['file_hash'] = hash_file('sha256', $file->getRealPath());
-
-            // Send to external archive API (sync)
             try {
-                $arsipResponse = Http::withHeaders([
+                $response = Http::withHeaders([
                     'X-API-TOKEN' => config('e-office.arsip_token')
                 ])->attach(
                     'file',
@@ -90,19 +83,18 @@ class IncomingLetterController extends Controller
                     'kategori' => 'Surat Masuk',
                     'keterangan' => $data['summary'] ?? '',
                 ]);
-                if ($arsipResponse->successful() && $arsipResponse->json('id')) {
-                    $archiveExternalId = $arsipResponse->json('id');
-                    $archiveViewPath = rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $archiveExternalId . '/view';
+                if ($response->successful() && $response->json('id')) {
+                    $data['archive_external_id'] = $response->json('id');
+                    // Optionally store hash for integrity; remote only
+                    $data['file_hash'] = hash_file('sha256', $file->getRealPath());
+                    // No local primary_file path saved now
                 } else {
-                    // Optionally log failure, but throw to abort create
-                    throw new \Exception('Archive upload failed: ' . $arsipResponse->body());
+                    throw new \Exception($response->body());
                 }
             } catch (\Throwable $e) {
-                return back()->withInput()->withErrors(['primary_file' => __('Failed to upload to archive: :msg', ['msg' => $e->getMessage()])]);
+                return back()->withInput()->withErrors(['primary_file' => __('Failed remote upload: :msg', ['msg' => $e->getMessage()])]);
             }
         }
-
-        $data['archive_external_id'] = $archiveExternalId;
         $data['status'] = \App\Enums\IncomingLetterStatus::New;
         $data['user_id'] = user()->id;
         $letter = IncomingLetter::create($data);
@@ -173,60 +165,38 @@ class IncomingLetterController extends Controller
     {
         $data = $request->validated();
         $archiveId = $incoming_letter->archive_external_id;
-        $newFileUploaded = false;
-        $storedPath = null;
         if ($request->hasFile('primary_file')) {
             $file = $request->file('primary_file');
-            // Store new file first (do not delete old until remote succeeds)
-            $storedPath = $file->store('incoming_letters', 'private');
-            $data['primary_file'] = $storedPath;
-            $data['file_hash'] = hash_file('sha256', $file->getRealPath());
-            $newFileUploaded = true;
-            // Remote archive update/create
             try {
                 $baseUrl = rtrim(config('e-office.arsip_api_url'), '/');
                 if ($archiveId) {
-                    $response = Http::withHeaders([
+                    $resp = Http::withHeaders([
                         'X-API-TOKEN' => config('e-office.arsip_token')
-                    ])->attach(
-                        'file',
-                        fopen($file->getRealPath(), 'r'),
-                        $file->getClientOriginalName()
-                    )->post($baseUrl . '/api/v1/dokumen-arsip/' . $archiveId . '/update-file');
-                    if (!$response->successful()) {
-                        throw new \Exception($response->body());
-                    }
+                    ])->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
+                        ->post($baseUrl . '/api/v1/dokumen-arsip/' . $archiveId . '/update-file');
+                    if (!$resp->successful()) throw new \Exception($resp->body());
                 } else {
-                    $response = Http::withHeaders([
+                    $resp = Http::withHeaders([
                         'X-API-TOKEN' => config('e-office.arsip_token')
-                    ])->attach(
-                        'file',
-                        fopen($file->getRealPath(), 'r'),
-                        $file->getClientOriginalName()
-                    )->post($baseUrl . '/api/v1/dokumen-arsip', [
-                        'judul' => $data['subject'] ?? '',
-                        'nomor_dokumen' => $data['letter_number'] ?? $incoming_letter->letter_number,
-                        'pengirim' => $data['sender'] ?? $incoming_letter->sender,
-                        'kategori' => 'Surat Masuk',
-                        'keterangan' => $data['summary'] ?? $incoming_letter->summary ?? '',
-                    ]);
-                    if ($response->successful() && $response->json('id')) {
-                        $archiveId = $response->json('id');
+                    ])->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
+                        ->post($baseUrl . '/api/v1/dokumen-arsip', [
+                            'judul' => $data['subject'] ?? $incoming_letter->subject ?? '',
+                            'nomor_dokumen' => $data['letter_number'] ?? $incoming_letter->letter_number,
+                            'pengirim' => $data['sender'] ?? $incoming_letter->sender,
+                            'kategori' => 'Surat Masuk',
+                            'keterangan' => $data['summary'] ?? $incoming_letter->summary ?? '',
+                        ]);
+                    if ($resp->successful() && $resp->json('id')) {
+                        $archiveId = $resp->json('id');
                         $data['archive_external_id'] = $archiveId;
-                    } else {
-                        throw new \Exception($response->body());
-                    }
+                    } else throw new \Exception($resp->body());
                 }
+                // Update file hash only (no local path)
+                $data['file_hash'] = hash_file('sha256', $file->getRealPath());
+                // Remove local primary_file reference if existed earlier
+                $data['primary_file'] = null;
             } catch (\Throwable $e) {
-                // Rollback new file storage if remote failed
-                if ($storedPath && Storage::disk('private')->exists($storedPath)) {
-                    Storage::disk('private')->delete($storedPath);
-                }
-                return back()->withInput()->withErrors(['primary_file' => __('Failed to update archive file: :msg', ['msg' => $e->getMessage()])]);
-            }
-            // If remote succeeded, delete old file
-            if ($incoming_letter->primary_file && Storage::disk('private')->exists($incoming_letter->primary_file)) {
-                Storage::disk('private')->delete($incoming_letter->primary_file);
+                return back()->withInput()->withErrors(['primary_file' => __('Failed remote update: :msg', ['msg' => $e->getMessage()])]);
             }
         }
         $incoming_letter->update($data);
