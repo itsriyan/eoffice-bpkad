@@ -332,8 +332,6 @@ return [
             'type' => 'sidebar-menu-search',
             'text' => 'search',
         ],
-
-        ['header' => 'account_settings'],
         [
             'text' => 'profile',
             'url' => 'profile',
