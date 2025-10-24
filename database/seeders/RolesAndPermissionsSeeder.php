@@ -17,6 +17,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // Define permissions grouped by domain for clarity
         $permissionGroups = [
             'users' => ['user.view', 'user.create', 'user.edit', 'user.delete'],
+            // role & permission management (missing previously)
+            'roles' => ['role.view', 'role.create', 'role.edit', 'role.delete'],
+            'permissions' => ['permission.view', 'permission.create', 'permission.edit', 'permission.delete'],
             'employees' => ['employee.view', 'employee.create', 'employee.edit', 'employee.delete'],
             'grades' => ['grade.view', 'grade.create', 'grade.edit', 'grade.delete'],
             'work_units' => ['work_unit.view', 'work_unit.create', 'work_unit.edit', 'work_unit.delete'],
@@ -54,7 +57,7 @@ class RolesAndPermissionsSeeder extends Seeder
         // pimpinan: disposition decision & letter lifecycle actions (dispose/reject/archive) + view
         // staff: limited to viewing letters & working on dispositions (claim/follow_up)
         $roles = [
-            'superadmin' => $allPermissions->merge(['integration_log.view'])->unique(),
+            'superadmin' => $allPermissions,
             'admin' => [
                 // user & organization management
                 'user.view',

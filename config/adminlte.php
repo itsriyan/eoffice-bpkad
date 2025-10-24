@@ -354,13 +354,13 @@ return [
             'can' => 'role.view',
             'submenu' => [
                 [
-                    'text' => 'roles',
+                    'text' => 'Roles',
                     'url' => 'roles',
                     'icon' => 'fas fa-user-shield',
                     'can' => 'role.view',
                 ],
                 [
-                    'text' => 'permissions',
+                    'text' => 'Permissions',
                     'url' => 'permissions',
                     'icon' => 'fas fa-key',
                     'can' => 'permission.view',
