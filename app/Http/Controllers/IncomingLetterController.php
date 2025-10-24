@@ -81,6 +81,8 @@ class IncomingLetterController extends Controller
                     'judul' => $data['subject'],
                     'nomor_dokumen' => $data['letter_number'],
                     'pengirim' => $data['sender'],
+                    'penerima' => 'BPKAD Kab. Tangerang',
+                    'tanggal_dokumen' => $data['letter_date'],
                     // API expects kategori as array
                     'kategori' => ['Surat Masuk'],
                     'keterangan' => $data['summary'] ?? '',
@@ -192,6 +194,8 @@ class IncomingLetterController extends Controller
                             'nomor_dokumen' => $data['letter_number'] ?? $incoming_letter->letter_number,
                             'pengirim' => $data['sender'] ?? $incoming_letter->sender,
                             'kategori' => ['Surat Masuk'],
+                            'penerima' => 'BPKAD Kab. Tangerang',
+                            'tanggal_dokumen' => $data['letter_date'] ?? $incoming_letter->letter_date?->toDateString(),
                             'keterangan' => $data['summary'] ?? $incoming_letter->summary ?? '',
                         ]);
                     if ($resp->successful() && $resp->json('id')) {
