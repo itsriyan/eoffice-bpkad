@@ -36,13 +36,13 @@
     <script>
         // Translation helpers (fallback to raw text if key missing)
         const t = (key) =>
-        key; // server-side already translated in labels; JS alerts can be improved later by passing localized strings.
+            key; // server-side already translated in labels; JS alerts can be improved later by passing localized strings.
 
         function getScannerPort() {
             return localStorage.getItem('scanner_port') || '5000';
         }
 
-        function fetchDevices(port) {
+        function fetchDevices(port, attempt = 1) {
             $('#scanner-device').hide().empty();
             $('#refresh-device-wrapper').hide();
             $.ajax({
@@ -59,12 +59,24 @@
                             const sel = (selectedDevice && dev === selectedDevice) ? 'selected' : '';
                             if (sel) found = true;
                             $('#scanner-device').append(
-                            `<option value="${dev}" ${sel}>${dev}</option>`);
+                                `<option value="${dev}" ${sel}>${dev}</option>`);
                         });
                         if (selectedDevice && !found) localStorage.removeItem('scanner_device');
+                    } else if (attempt < 3) {
+                        // retry silently up to 3 attempts if no devices found
+                        setTimeout(() => fetchDevices(port, attempt + 1), 1200);
                     }
+                },
+                error: function() {
+                    if (attempt < 3) setTimeout(() => fetchDevices(port, attempt + 1), 1500);
                 }
             });
+        }
+
+        function initScanner() {
+            const port = getScannerPort();
+            $('#scanner-port').val(port);
+            fetchDevices(port);
         }
 
         $(document).ready(function() {
@@ -95,10 +107,8 @@
                 }
             });
 
-            // Port init
-            const port = getScannerPort();
-            $('#scanner-port').val(port);
-            if (port) fetchDevices(port);
+            // Initialize scanner (devices + saved port) after binding handlers
+            initScanner();
 
             // Save port
             $('#save-port-btn').on('click', function() {
@@ -163,6 +173,11 @@
                     .finally(() => btn.prop('disabled', false).html(
                         '<i class="fas fa-print"></i> {{ __('Scan Document') }}'));
             });
+        });
+
+        // Kick early init in case DOM ready is slightly delayed (will be idempotent)
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!$('#scanner-device option').length) initScanner();
         });
     </script>
 @stop
