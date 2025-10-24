@@ -329,6 +329,11 @@ return [
 
         // Sidebar items:
         [
+            'text' => 'Dashboard',
+            'url' => '/',
+            'icon' => 'fas fa-fw fa-tachometer-alt',
+        ],
+        [
             'type' => 'sidebar-menu-search',
             'text' => 'search',
         ],
@@ -346,6 +351,7 @@ return [
         [
             'text' => 'Akses Kontrol',
             'icon' => 'fas fa-shield-alt',
+            'can' => 'role.view',
             'submenu' => [
                 [
                     'text' => 'roles',
