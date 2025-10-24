@@ -32,9 +32,9 @@ class UsersAndEmployeesSeeder extends Seeder
         }
 
         $users = [
-            ['name' => 'Super Admin', 'email' => 'superadmin@example.com', 'role' => 'superadmin', 'position' => 'Super Administrator'],
-            ['name' => 'Admin Sistem', 'email' => 'admin@example.com', 'role' => 'admin', 'position' => 'Administrator'],
-            ['name' => 'Pimpinan Utama', 'email' => 'pimpinan@example.com', 'role' => 'pimpinan', 'position' => 'Pimpinan'],
+            ['name' => 'Super Admin', 'email' => 'superadmin@rihac.xyz', 'role' => 'superadmin', 'position' => 'Super Administrator'],
+            ['name' => 'Admin Sistem', 'email' => 'admin@rihac.xyz', 'role' => 'admin', 'position' => 'Administrator'],
+            ['name' => 'Pimpinan Utama', 'email' => 'pimpinan@rihac.xyz', 'role' => 'pimpinan', 'position' => 'Pimpinan'],
         ];
 
         foreach ($users as $u) {
@@ -42,7 +42,7 @@ class UsersAndEmployeesSeeder extends Seeder
                 ['email' => $u['email']],
                 [
                     'name' => $u['name'],
-                    'password' => Hash::make('password'),
+                    'password' => Hash::make('12345678'),
                     'email_verified_at' => now(),
                 ]
             );
