@@ -58,12 +58,24 @@
                 <dd class="col-sm-9">{{ $incoming_letter->physical_location }}</dd>
             </dl>
         </div>
-        <div class="card-footer d-flex justify-content-between">
-            <a href="{{ route('incoming_letters.index') }}" class="btn btn-secondary btn-sm"><i
-                    class="fas fa-arrow-left"></i> {{ __('Back') }}</a>
-            @can('edit incoming_letters')
-                <a href="{{ route('incoming_letters.edit', $incoming_letter->id) }}" class="btn btn-info btn-sm"><i
-                        class="fas fa-edit"></i> {{ __('Edit') }}</a>
+        <div class="card-footer d-flex justify-content-between align-items-center flex-wrap">
+            <div class="mb-2 mb-sm-0">
+                <a href="{{ route('incoming_letters.index') }}" class="btn btn-secondary btn-sm"><i
+                        class="fas fa-arrow-left"></i> {{ __('Back') }}</a>
+                @can('incoming_letter.edit')
+                    <a href="{{ route('incoming_letters.edit', $incoming_letter->id) }}" class="btn btn-info btn-sm"><i
+                            class="fas fa-edit"></i> {{ __('Edit') }}</a>
+                @endcan
+            </div>
+            @can('incoming_letter.view')
+                <form action="{{ route('incoming_letters.notify_pimpinan', $incoming_letter->id) }}" method="POST"
+                    class="d-inline">
+                    @csrf
+                    <button type="submit" class="btn btn-warning btn-sm"
+                        onclick="return confirm('{{ __('Kirim ulang notifikasi ke pimpinan?') }}')">
+                        <i class="fas fa-sync"></i> {{ __('Kirim Ulang WA Pimpinan') }}
+                    </button>
+                </form>
             @endcan
         </div>
     </div>

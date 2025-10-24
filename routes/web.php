@@ -44,6 +44,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/incoming-letters/{incoming_letter}/edit', [IncomingLetterController::class, 'edit'])->name('incoming_letters.edit');
     Route::put('/incoming-letters/{incoming_letter}', [IncomingLetterController::class, 'update'])->name('incoming_letters.update');
     Route::delete('/incoming-letters/{incoming_letter}', [IncomingLetterController::class, 'destroy'])->name('incoming_letters.destroy');
+    Route::post('/incoming-letters/{incoming_letter}/notify-pimpinan', [IncomingLetterController::class, 'notifyPimpinan'])->name('incoming_letters.notify_pimpinan');
 
     // Users
     Route::get('/users', [UserController::class, 'index'])->name('users.index');

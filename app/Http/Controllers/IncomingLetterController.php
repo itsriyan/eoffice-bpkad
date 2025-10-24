@@ -236,6 +236,47 @@ class IncomingLetterController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function notifyPimpinan(IncomingLetter $incoming_letter)
+    {
+        // Allow roles that can view letters (view permission sufficient) or dispose (pimpinan)
+        if (!user()->can('incoming_letter.view')) abort(403);
+        try {
+            $pimpinanPhone = $this->resolvePimpinanPhone();
+            if (!$pimpinanPhone) {
+                return back()->with('error', __('Nomor pimpinan tidak ditemukan.'));
+            }
+            // Variables same as creation template
+            $variables = [
+                $incoming_letter->letter_number,
+                $incoming_letter->sender,
+                $incoming_letter->subject,
+                $incoming_letter->received_date?->translatedFormat('d M Y') ?? $incoming_letter->received_date?->toDateString(),
+                route('incoming_letters.show', $incoming_letter->id),
+            ];
+            // Refresh WA session context for this letter (reset active if needed)
+            wa_session_set($pimpinanPhone, [
+                'letter_id' => $incoming_letter->id,
+                'phase' => 'template_sent_manual',
+                'ts' => now()->timestamp,
+            ]);
+            wa_multi_session_add_letter($pimpinanPhone, $incoming_letter->id);
+            \App\Jobs\SendWhatsappMessageJob::dispatch(
+                to: $pimpinanPhone,
+                mode: 'template',
+                templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
+                variables: $variables,
+                correlationId: 'letter-notify-manual-' . $incoming_letter->id
+            );
+            return back()->with('success', __('Notifikasi WhatsApp dikirim ulang.'));
+        } catch (\Throwable $e) {
+            Log::channel('whatsapp')->error('Failed manual WA notify', [
+                'incoming_letter_id' => $incoming_letter->id,
+                'error' => $e->getMessage(),
+            ]);
+            return back()->with('error', __('Gagal kirim ulang: :msg', ['msg' => $e->getMessage()]));
+        }
+    }
+
     private function buildActions(IncomingLetter $l): string
     {
         $actions = '<span class="d-inline-flex">';
