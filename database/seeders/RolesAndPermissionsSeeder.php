@@ -37,6 +37,9 @@ class RolesAndPermissionsSeeder extends Seeder
                 'disposition.reject',
                 'disposition.complete'
             ],
+            'integration_logs' => [
+                'integration_log.view'
+            ],
         ];
 
         $allPermissions = collect($permissionGroups)->flatten()->unique()->values();
@@ -51,7 +54,7 @@ class RolesAndPermissionsSeeder extends Seeder
         // pimpinan: disposition decision & letter lifecycle actions (dispose/reject/archive) + view
         // staff: limited to viewing letters & working on dispositions (claim/follow_up)
         $roles = [
-            'superadmin' => $allPermissions,
+            'superadmin' => $allPermissions->merge(['integration_log.view'])->unique(),
             'admin' => [
                 // user & organization management
                 'user.view',

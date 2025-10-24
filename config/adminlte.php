@@ -333,18 +333,18 @@ return [
             'text' => 'search',
         ],
         [
-            'text' => 'profile',
+            'text' => 'Profile',
             'url' => 'profile',
             'icon' => 'fas fa-fw fa-user',
         ],
         [
-            'text' => 'users',
+            'text' => 'Users',
             'url' => 'users',
             'icon' => 'fas fa-users',
             'can' => 'user.view',
         ],
         [
-            'text' => 'access_control',
+            'text' => 'Akses Kontrol',
             'icon' => 'fas fa-shield-alt',
             'submenu' => [
                 [
@@ -362,13 +362,13 @@ return [
             ],
         ],
         [
-            'text' => 'incoming_letters',
+            'text' => 'Surat Masuk',
             'url' => 'incoming-letters',
             'icon' => 'fas fa-envelope-open-text',
             'can' => 'incoming_letter.view',
         ],
         [
-            'text' => 'master_data',
+            'text' => 'Master Data',
             'icon' => 'fas fa-database',
             'submenu' => [
                 [
@@ -387,12 +387,6 @@ return [
                     'can' => 'work_unit.view',
                 ],
             ],
-        ],
-        [
-            'text' => 'integration_logs',
-            'url' => '#',
-            'icon' => 'fas fa-link',
-            'can' => 'integration_log.view',
         ],
     ],
 
