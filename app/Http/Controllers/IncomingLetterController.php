@@ -71,7 +71,8 @@ class IncomingLetterController extends Controller
             $file = $request->file('primary_file');
             try {
                 $response = Http::withHeaders([
-                    'X-API-TOKEN' => config('e-office.arsip_token')
+                    'X-API-TOKEN' => config('e-office.arsip_token'),
+                    'Accept' => 'application/json'
                 ])->attach(
                     'file',
                     fopen($file->getRealPath(), 'r'),
@@ -80,9 +81,14 @@ class IncomingLetterController extends Controller
                     'judul' => $data['subject'],
                     'nomor_dokumen' => $data['letter_number'],
                     'pengirim' => $data['sender'],
-                    'kategori' => 'Surat Masuk',
+                    // API expects kategori as array
+                    'kategori' => ['Surat Masuk'],
                     'keterangan' => $data['summary'] ?? '',
                 ]);
+                $body = $response->body();
+                if (str_starts_with(ltrim($body), '<!DOCTYPE') || str_starts_with(ltrim($body), '<html')) {
+                    throw new \Exception('Unexpected HTML response (possible 419 or auth issue)');
+                }
                 if ($response->successful() && $response->json('id')) {
                     $data['archive_external_id'] = $response->json('id');
                     // Optionally store hash for integrity; remote only
@@ -171,19 +177,21 @@ class IncomingLetterController extends Controller
                 $baseUrl = rtrim(config('e-office.arsip_api_url'), '/');
                 if ($archiveId) {
                     $resp = Http::withHeaders([
-                        'X-API-TOKEN' => config('e-office.arsip_token')
+                        'X-API-TOKEN' => config('e-office.arsip_token'),
+                        'Accept' => 'application/json'
                     ])->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
                         ->post($baseUrl . '/api/v1/dokumen-arsip/' . $archiveId . '/update-file');
                     if (!$resp->successful()) throw new \Exception($resp->body());
                 } else {
                     $resp = Http::withHeaders([
-                        'X-API-TOKEN' => config('e-office.arsip_token')
+                        'X-API-TOKEN' => config('e-office.arsip_token'),
+                        'Accept' => 'application/json'
                     ])->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
                         ->post($baseUrl . '/api/v1/dokumen-arsip', [
                             'judul' => $data['subject'] ?? $incoming_letter->subject ?? '',
                             'nomor_dokumen' => $data['letter_number'] ?? $incoming_letter->letter_number,
                             'pengirim' => $data['sender'] ?? $incoming_letter->sender,
-                            'kategori' => 'Surat Masuk',
+                            'kategori' => ['Surat Masuk'],
                             'keterangan' => $data['summary'] ?? $incoming_letter->summary ?? '',
                         ]);
                     if ($resp->successful() && $resp->json('id')) {
