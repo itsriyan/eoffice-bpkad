@@ -91,8 +91,10 @@ class IncomingLetterController extends Controller
                 if (str_starts_with(ltrim($body), '<!DOCTYPE') || str_starts_with(ltrim($body), '<html')) {
                     throw new \Exception('Unexpected HTML response (possible 419 or auth issue)');
                 }
-                if ($response->successful() && $response->json('id')) {
-                    $data['archive_external_id'] = $response->json('id');
+                $respJson = $response->json();
+                $extId = $response->json('id') ?? ($respJson['data']['id'] ?? null);
+                if ($response->successful() && $extId) {
+                    $data['archive_external_id'] = $extId;
                     // Optionally store hash for integrity; remote only
                     $data['file_hash'] = hash_file('sha256', $file->getRealPath());
                     // No local primary_file path saved now
@@ -183,7 +185,11 @@ class IncomingLetterController extends Controller
                         'Accept' => 'application/json'
                     ])->attach('file', fopen($file->getRealPath(), 'r'), $file->getClientOriginalName())
                         ->post($baseUrl . '/api/v1/dokumen-arsip/' . $archiveId . '/update-file');
-                    if (!$resp->successful()) throw new \Exception($resp->body());
+                    $body = $resp->body();
+                    if (str_starts_with(ltrim($body), '<!DOCTYPE') || str_starts_with(ltrim($body), '<html')) {
+                        throw new \Exception('Unexpected HTML response (possible 419 or auth issue)');
+                    }
+                    if (!$resp->successful()) throw new \Exception($body);
                 } else {
                     $resp = Http::withHeaders([
                         'X-API-TOKEN' => config('e-office.arsip_token'),
@@ -195,12 +201,20 @@ class IncomingLetterController extends Controller
                             'pengirim' => $data['sender'] ?? $incoming_letter->sender,
                             'penerima' => 'BPKAD Kab. Tangerang',
                             'tanggal_dokumen' => $data['letter_date'] ?? $incoming_letter->letter_date?->toDateString(),
+                            // API expects kategori as array
+                            'kategori' => 'Surat Masuk',
                             'keterangan' => $data['summary'] ?? $incoming_letter->summary ?? '',
                         ]);
-                    if ($resp->successful() && $resp->json('id')) {
-                        $archiveId = $resp->json('id');
+                    $body = $resp->body();
+                    if (str_starts_with(ltrim($body), '<!DOCTYPE') || str_starts_with(ltrim($body), '<html')) {
+                        throw new \Exception('Unexpected HTML response (possible 419 or auth issue)');
+                    }
+                    $respJson = $resp->json();
+                    $extId = $resp->json('id') ?? ($respJson['data']['id'] ?? null);
+                    if ($resp->successful() && $extId) {
+                        $archiveId = $extId;
                         $data['archive_external_id'] = $archiveId;
-                    } else throw new \Exception($resp->body());
+                    } else throw new \Exception($body);
                 }
                 // Update file hash only (no local path)
                 $data['file_hash'] = hash_file('sha256', $file->getRealPath());
