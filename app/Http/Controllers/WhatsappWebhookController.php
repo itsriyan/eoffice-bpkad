@@ -41,7 +41,7 @@ class WhatsappWebhookController extends Controller
         if ($mode === 'subscribe' && $token && $token === $expected) {
             return response($challenge, 200);
         }
-        return response('Invalid verification token', 403);
+        return response('', 200);
     }
 
     /**
