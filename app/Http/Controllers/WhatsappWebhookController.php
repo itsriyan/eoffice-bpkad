@@ -21,6 +21,23 @@ class WhatsappWebhookController extends Controller
         $challenge = $request->query('hub_challenge');
 
         $expected = config('e-office.whatsapp.verify_token'); // Add to config/env if not present
+
+        // Log the verification attempt
+        DB::table('integration_logs')->insert([
+            'service' => 'whatsapp-webhook',
+            'endpoint' => 'verification',
+            'method' => 'GET',
+            'request_payload' => json_encode($request->query()),
+            'response_body' => null,
+            'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
+            'success' => $mode === 'subscribe' && $token && $token === $expected,
+            'attempt' => 1,
+            'message_id' => null,
+            'correlation_id' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         if ($mode === 'subscribe' && $token && $token === $expected) {
             return response($challenge, 200);
         }
