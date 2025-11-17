@@ -10,6 +10,7 @@ return [
         'default_language' => env('E_OFFICE_WA_DEFAULT_LANG', 'id'),
         'default_template' => env('E_OFFICE_WA_DEFAULT_TEMPLATE', 'surat_masuk_baru'),
         'timeout' => env('E_OFFICE_WA_TIMEOUT', 10),
+        'verify_token' => env('E_OFFICE_WA_VERIFY_TOKEN', 'change-me'),
         'rate_limit' => [
             'switch_per_minute' => env('E_OFFICE_WA_RATE_SWITCH', 12),
             'help_per_minute' => env('E_OFFICE_WA_RATE_HELP', 6),
