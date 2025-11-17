@@ -29,8 +29,8 @@ class WhatsappWebhookController extends Controller
             'method' => 'GET',
             'request_payload' => json_encode($request->query()),
             'response_body' => null,
-            'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
-            'success' => $mode === 'subscribe' && $token && $token === $expected,
+            'status_code' => $mode === 'subscribe' && $token && $challenge === $expected ? 200 : 403,
+            'success' => $mode === 'subscribe' && $token && $challenge === $expected,
             'attempt' => 1,
             'message_id' => null,
             'correlation_id' => null,
@@ -38,10 +38,10 @@ class WhatsappWebhookController extends Controller
             'updated_at' => now(),
         ]);
 
-        if ($mode === 'subscribe' && $token && $token === $expected) {
+        if ($mode === 'subscribe' && $token && $challenge === $expected) {
             return response($challenge, 200);
         }
-        return response('', 200);
+        return response('Invalid Request', 403);
     }
 
     /**
