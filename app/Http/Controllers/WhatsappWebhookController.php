@@ -22,6 +22,12 @@ class WhatsappWebhookController extends Controller
 
         $expected = config('e-office.whatsapp.verify_token'); // Add to config/env if not present
 
+        Log::channel('whatsapp')->info('Webhook verification request', [
+            'mode' => $mode,
+            'token_provided' => $token ? 'yes' : 'no',
+            'challenge_length' => strlen($challenge ?? ''),
+        ]);
+
         // Log the verification attempt
         DB::table('integration_logs')->insert([
             'service' => 'whatsapp-webhook',
@@ -29,8 +35,8 @@ class WhatsappWebhookController extends Controller
             'method' => 'GET',
             'request_payload' => json_encode($request->query()),
             'response_body' => null,
-            'status_code' => $mode === 'subscribe' && $token && $challenge === $expected ? 200 : 403,
-            'success' => $mode === 'subscribe' && $token && $challenge === $expected,
+            'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
+            'success' => $mode === 'subscribe' && $token && $token === $expected,
             'attempt' => 1,
             'message_id' => null,
             'correlation_id' => null,
@@ -38,10 +44,12 @@ class WhatsappWebhookController extends Controller
             'updated_at' => now(),
         ]);
 
-        if ($mode === 'subscribe' && $token && $challenge === $expected) {
+        if ($mode === 'subscribe' && $token && $token === $expected) {
+            Log::channel('whatsapp')->info('Webhook verification successful');
             return response($challenge, 200);
         }
-        return response('Invalid Request', 403);
+        Log::channel('whatsapp')->warning('Webhook verification failed', ['reason' => 'invalid mode or token']);
+        return response('Invalid verification token', 403);
     }
 
     /**
@@ -50,6 +58,12 @@ class WhatsappWebhookController extends Controller
     public function handle(Request $request)
     {
         $payload = $request->all();
+
+        Log::channel('whatsapp')->info('Incoming webhook event', [
+            'object' => $payload['object'] ?? 'unknown',
+            'entry_count' => count($payload['entry'] ?? []),
+        ]);
+
         // Store raw webhook for audit/investigation
         DB::table('integration_logs')->insert([
             'service' => 'whatsapp-webhook',
