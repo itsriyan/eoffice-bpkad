@@ -112,8 +112,8 @@ Route::middleware('auth')->group(function () {
 });
 
 // WhatsApp webhook (no auth middleware)
-Route::get('/webhook/whatsapp', [WhatsappWebhookController::class, 'verify']);
-Route::post('/webhook/whatsapp', [WhatsappWebhookController::class, 'handle']);
+// Route::get('/webhook/whatsapp', [WhatsappWebhookController::class, 'verify']);
+// Route::post('/webhook/whatsapp', [WhatsappWebhookController::class, 'handle']);
 // Public privacy policy page for WhatsApp integration (no AdminLTE layout)
 Route::view('/whatsapp-privacy', 'public.whatsapp-privacy')->name('whatsapp.privacy');
 Route::view('/whatsapp-terms', 'public.whatsapp-terms')->name('whatsapp.terms');
