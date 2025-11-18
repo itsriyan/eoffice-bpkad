@@ -22,33 +22,38 @@ class WhatsappWebhookController extends Controller
 
         $expected = config('e-office.whatsapp.verify_token'); // Add to config/env if not present
 
-        Log::channel('whatsapp')->info('Webhook verification request', [
-            'mode' => $mode,
-            'token_provided' => $token ? 'yes' : 'no',
-            'challenge_length' => strlen($challenge ?? ''),
-        ]);
+        if ($token === null or $token === '') {
+            return response('', 200);
+        }
 
-        // Log the verification attempt
-        DB::table('integration_logs')->insert([
-            'service' => 'whatsapp-webhook',
-            'endpoint' => 'verification',
-            'method' => 'GET',
-            'request_payload' => json_encode($request->query()),
-            'response_body' => null,
-            'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
-            'success' => $mode === 'subscribe' && $token && $token === $expected,
-            'attempt' => 1,
-            'message_id' => null,
-            'correlation_id' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if ($token === $expected) {
+            Log::channel('whatsapp')->info('Webhook verification request', [
+                'mode' => $mode,
+                'token_provided' => $token ? 'yes' : 'no',
+                'challenge_length' => strlen($challenge ?? ''),
+            ]);
+
+            // Log the verification attempt
+            DB::table('integration_logs')->insert([
+                'service' => 'whatsapp-webhook',
+                'endpoint' => 'verification',
+                'method' => 'GET',
+                'request_payload' => json_encode($request->query()),
+                'response_body' => null,
+                'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
+                'success' => $mode === 'subscribe' && $token && $token === $expected,
+                'attempt' => 1,
+                'message_id' => null,
+                'correlation_id' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
 
         if ($mode === 'subscribe' && $token && $token === $expected) {
-            Log::channel('whatsapp')->info('Webhook verification successful');
             return response($challenge, 200);
         }
-        Log::channel('whatsapp')->warning('Webhook verification failed', ['reason' => 'invalid mode or token']);
         return response('Invalid verification token', 403);
     }
 
