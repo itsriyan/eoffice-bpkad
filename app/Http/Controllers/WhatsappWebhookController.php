@@ -107,6 +107,24 @@ class WhatsappWebhookController extends Controller
 
         // ── Pesan teks ───────────────────────────────────────────────────────
         if ($type === 'text') {
+            // ── DAFTAR command ────────────────────────────────────────────────
+            if (preg_match('/^DAFTAR$/i', $msgText)) {
+                $this->handleDaftar($from, $session, $multi);
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── BATAL command ─────────────────────────────────────────────────
+            if (preg_match('/^BATAL$/i', $msgText)) {
+                $this->handleBatal($from, $session);
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── GANTI command (minta pindah surat saat mid-flow) ──────────────
+            if (preg_match('/^GANTI$/i', $msgText)) {
+                $this->handleGanti($from, $session, $multi);
+                return response()->json(['status' => 'ok']);
+            }
+
             // BANTUAN command
             if (preg_match('/^BANTUAN$/i', $msgText)) {
                 $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
@@ -116,22 +134,11 @@ class WhatsappWebhookController extends Controller
                     return response()->json(['status' => 'ok']);
                 }
                 wa_rate_limit_hit($from, 'help');
-                if ($multi && $multi['letters']) {
-                    $letters  = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])->get();
-                    $activeId = $multi['active_letter_id'];
-                    $lines    = $letters->map(function ($l) use ($activeId) {
-                        $prefix = $l->id === $activeId ? '*' : '-';
-                        return $prefix . ' ' . $l->letter_number . ' (' . $l->status->value . ')';
-                    })->implode("\n");
-                    $usage = __('Perintah: SWITCH <nomor_surat> untuk berpindah konteks.');
-                    app(WhatsappClient::class)->sendText($from, __('Surat pending:') . "\n" . $lines . "\n\n" . $usage);
-                } else {
-                    app(WhatsappClient::class)->sendText($from, __('Tidak ada surat pending.'));
-                }
+                $this->sendHelpText($from, $session, $multi);
                 return response()->json(['status' => 'ok']);
             }
 
-            // SWITCH command
+            // SWITCH command (lama – tetap didukung)
             if (preg_match('/^SWITCH\s+(.+)/i', $msgText, $m)) {
                 $limit = config('e-office.whatsapp.rate_limit.switch_per_minute');
                 if (wa_rate_limit_exceeded($from, 'switch', $limit)) {
@@ -141,17 +148,72 @@ class WhatsappWebhookController extends Controller
                 }
                 wa_rate_limit_hit($from, 'switch');
                 $targetNumber = trim($m[1]);
-                $letter = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
+                $letter       = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
                 if ($letter && $multi && in_array($letter->id, $multi['letters'], true)) {
                     wa_multi_session_set_active($from, $letter->id);
                     wa_session_set($from, [
                         'letter_id' => $letter->id,
-                        'phase'     => 'switched',
+                        'phase'     => 'awaiting_action',
                         'ts'        => now()->timestamp,
                     ]);
                     app(WhatsappClient::class)->sendText($from, __('Konteks berpindah ke surat :num', ['num' => $letter->letter_number]));
                 } else {
                     app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan atau tidak dalam daftar pending.'));
+                }
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── Phase: pilih surat dari daftar (DAFTAR command) ──────────────
+            if ($session && ($session['phase'] ?? '') === 'select_letter') {
+                if (preg_match('/^\s*(\d+)\s*$/', $msgText, $m)) {
+                    $this->handleSelectLetter($from, (int) $m[1], $session);
+                } else {
+                    app(WhatsappClient::class)->sendText($from, __('Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.'));
+                }
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── Phase: konfirmasi GANTI saat mid-flow ────────────────────────
+            if ($session && ($session['phase'] ?? '') === 'confirm_switch') {
+                if (preg_match('/^\s*1\s*$/', $msgText)) {
+                    // Lanjutkan alur sebelumnya
+                    if (wa_session_restore_snapshot($from)) {
+                        $restored = wa_session_get($from);
+                        $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
+                        app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
+                    } else {
+                        wa_session_forget($from);
+                        app(WhatsappClient::class)->sendText($from, __('Sesi sebelumnya sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
+                    }
+                } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
+                    // Batalkan alur lama, tampilkan daftar
+                    wa_session_forget_snapshot($from);
+                    wa_session_forget($from);
+                    $this->handleDaftar($from, null, wa_multi_session_get($from));
+                } else {
+                    app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk lanjutkan atau *2* untuk pindah surat.'));
+                }
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── Phase: konfirmasi BATAL saat mid-flow ────────────────────────
+            if ($session && ($session['phase'] ?? '') === 'confirm_cancel') {
+                if (preg_match('/^\s*1\s*$/', $msgText)) {
+                    // Ya, batalkan
+                    wa_session_forget($from);
+                    app(WhatsappClient::class)->sendText($from, __('Alur dibatalkan. Ketik *DAFTAR* untuk membuka daftar surat, atau *BANTUAN* untuk bantuan.'));
+                } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
+                    // Tidak, lanjutkan – restore
+                    if (wa_session_restore_snapshot($from)) {
+                        $restored = wa_session_get($from);
+                        $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
+                        app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
+                    } else {
+                        wa_session_forget($from);
+                        app(WhatsappClient::class)->sendText($from, __('Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
+                    }
+                } else {
+                    app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk batalkan atau *2* untuk lanjutkan.'));
                 }
                 return response()->json(['status' => 'ok']);
             }
@@ -195,24 +257,20 @@ class WhatsappWebhookController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
-            // ── Menu angka – tindakan surat ──────────────────────────────────
-            // Pimpinan membalas angka dari menu notifikasi surat masuk
-            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m)) {
-                $letterId = $session['letter_id'] ?? ($multi['active_letter_id'] ?? null);
-                if ($letterId) {
-                    switch ($m[1]) {
-                        case '1':
-                            $this->handleDisposisi($from, ['id' => $msgId]);
-                            break;
-                        case '2':
-                            $this->requestArchiveNote($from, ['id' => $msgId]);
-                            break;
-                        case '3':
-                            $this->requestRejectNote($from, ['id' => $msgId]);
-                            break;
-                    }
-                    return response()->json(['status' => 'ok']);
+            // ── Menu angka – tindakan surat (1/2/3) ──────────────────────────
+            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_action') {
+                switch ($m[1]) {
+                    case '1':
+                        $this->handleDisposisi($from, ['id' => $msgId]);
+                        break;
+                    case '2':
+                        $this->requestArchiveNote($from, ['id' => $msgId]);
+                        break;
+                    case '3':
+                        $this->requestRejectNote($from, ['id' => $msgId]);
+                        break;
                 }
+                return response()->json(['status' => 'ok']);
             }
         }
 
@@ -220,7 +278,179 @@ class WhatsappWebhookController extends Controller
     }
 
     // =========================================================================
-    // Private action handlers (tidak berubah dari implementasi sebelumnya)
+    // Command handlers: DAFTAR / BATAL / GANTI
+    // =========================================================================
+
+    /**
+     * DAFTAR – tampilkan semua surat pending sebagai daftar bernomor.
+     * Jika tidak ada surat pending, beri tahu user.
+     */
+    private function handleDaftar(string $from, ?array $session, ?array $multi): void
+    {
+        if (empty($multi['letters'])) {
+            app(WhatsappClient::class)->sendText($from, __('Tidak ada surat pending saat ini.'));
+            return;
+        }
+
+        $letters  = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])->get()->keyBy('id');
+        $activeId = $multi['active_letter_id'];
+        $items    = [];
+        $listMap  = [];
+        $i        = 1;
+        foreach ($multi['letters'] as $lid) {
+            $l = $letters[$lid] ?? null;
+            if (! $l) continue;
+            $marker      = $l->id === $activeId ? ' ✓' : '';
+            $items[]     = [
+                'num'         => $i,
+                'title'       => $l->letter_number . $marker,
+                'description' => 'Dari: ' . $l->sender . ' | ' . ($l->status->value ?? '-'),
+                'id'          => $l->id,
+            ];
+            $listMap[$i] = $l->id;
+            $i++;
+        }
+
+        wa_session_set($from, [
+            'phase'      => 'select_letter',
+            'list_items' => $listMap,
+            'ts'         => now()->timestamp,
+        ]);
+
+        app(WhatsappClient::class)->sendNumberedList(
+            $from,
+            "*Daftar Surat Pending* (" . count($items) . ")\nPilih angka untuk mulai tindakan, atau ketik *BATAL* untuk keluar:",
+            $items
+        );
+    }
+
+    /**
+     * User memilih angka dari daftar DAFTAR.
+     * Set surat aktif dan tampilkan menu tindakan.
+     */
+    private function handleSelectLetter(string $from, int $num, array $session): void
+    {
+        $listMap = $session['list_items'] ?? [];
+        $letterId = $listMap[$num] ?? null;
+
+        if (! $letterId) {
+            app(WhatsappClient::class)->sendText($from, __('Pilihan tidak valid. Balas dengan angka yang sesuai, atau ketik *BATAL*.'));
+            return;
+        }
+
+        $letter = \App\Models\IncomingLetter::find($letterId);
+        if (! $letter) {
+            app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan.'));
+            wa_session_forget($from);
+            return;
+        }
+
+        wa_multi_session_set_active($from, $letterId);
+        wa_session_set($from, [
+            'letter_id' => $letterId,
+            'phase'     => 'awaiting_action',
+            'ts'        => now()->timestamp,
+        ]);
+
+        $text = "*Surat: {$letter->letter_number}*\n"
+            . "Dari: {$letter->sender}\n"
+            . "Perihal: {$letter->subject}\n"
+            . "Tgl Terima: " . ($letter->received_date?->translatedFormat('d M Y') ?? '-') . "\n\n"
+            . "Pilih tindakan:\n"
+            . "*1* - Disposisi\n"
+            . "*2* - Arsipkan\n"
+            . "*3* - Tolak\n\n"
+            . "Ketik *BATAL* untuk kembali ke daftar.";
+
+        app(WhatsappClient::class)->sendText($from, $text);
+    }
+
+    /**
+     * BATAL – batalkan alur saat ini.
+     * Jika sedang mid-flow: minta konfirmasi dulu.
+     * Jika idle / di select_letter / awaiting_action: langsung batal.
+     */
+    private function handleBatal(string $from, ?array $session): void
+    {
+        $phase = $session['phase'] ?? null;
+
+        // Phase yang langsung bisa dibatalkan tanpa konfirmasi
+        $directCancel = [null, 'awaiting_action', 'select_letter', 'template_sent', 'template_sent_manual'];
+
+        if (in_array($phase, $directCancel, true)) {
+            wa_session_forget($from);
+            app(WhatsappClient::class)->sendText($from, __('Dibatalkan. Ketik *DAFTAR* untuk membuka daftar surat, atau *BANTUAN* untuk bantuan.'));
+            return;
+        }
+
+        // Mid-flow – minta konfirmasi
+        wa_session_save_snapshot($from);
+        wa_session_set($from, [
+            'phase' => 'confirm_cancel',
+            'ts'    => now()->timestamp,
+        ]);
+        $num = \App\Models\IncomingLetter::find($session['letter_id'] ?? 0)?->letter_number ?? '?';
+        app(WhatsappClient::class)->sendText(
+            $from,
+            "Anda sedang dalam alur surat *{$num}*. Batalkan?\n\n*1* - Ya, batalkan\n*2* - Tidak, lanjutkan"
+        );
+    }
+
+    /**
+     * GANTI – minta pindah ke surat lain saat mid-flow.
+     */
+    private function handleGanti(string $from, ?array $session, ?array $multi): void
+    {
+        if (empty($multi['letters']) || count($multi['letters']) <= 1) {
+            app(WhatsappClient::class)->sendText($from, __('Tidak ada surat lain yang pending.'));
+            return;
+        }
+
+        if (wa_session_is_mid_flow($session)) {
+            // Mid-flow: simpan snapshot lalu konfirmasi
+            wa_session_save_snapshot($from);
+            wa_session_set($from, [
+                'phase' => 'confirm_switch',
+                'ts'    => now()->timestamp,
+            ]);
+            $num = \App\Models\IncomingLetter::find($session['letter_id'] ?? 0)?->letter_number ?? '?';
+            app(WhatsappClient::class)->sendText(
+                $from,
+                "Alur surat *{$num}* belum selesai.\n\n*1* - Lanjutkan surat ini\n*2* - Batalkan & pilih surat lain"
+            );
+        } else {
+            // Idle / awaiting: langsung tampilkan daftar
+            wa_session_forget($from);
+            $this->handleDaftar($from, null, $multi);
+        }
+    }
+
+    /**
+     * BANTUAN – tampilkan daftar perintah yang tersedia.
+     */
+    private function sendHelpText(string $from, ?array $session, ?array $multi): void
+    {
+        $count   = count($multi['letters'] ?? []);
+        $phase   = $session['phase'] ?? null;
+        $pending = $count > 0 ? "\n\n📋 Surat pending: *{$count}*. Ketik *DAFTAR* untuk lihat." : '';
+
+        $text = "*Perintah yang tersedia:*\n"
+            . "*DAFTAR* - Lihat semua surat pending\n"
+            . "*BATAL* - Batalkan alur saat ini\n"
+            . "*GANTI* - Pindah ke surat lain\n"
+            . "*BANTUAN* - Tampilkan pesan ini"
+            . $pending;
+
+        if ($phase && ! in_array($phase, [null, 'awaiting_action', 'select_letter'], true)) {
+            $num  = \App\Models\IncomingLetter::find($session['letter_id'] ?? 0)?->letter_number ?? '?';
+            $text .= "\n\n⚠️ Alur aktif: *{$num}* (fase: {$phase})";
+        }
+
+        app(WhatsappClient::class)->sendText($from, $text);
+    }
+
+    // =========================================================================
+    // Private action handlers
     // =========================================================================
 
     private function handleDisposisi(?string $from, array $message): void
@@ -431,11 +661,66 @@ class WhatsappWebhookController extends Controller
                     'updated_at'      => now(),
                 ]);
                 app(WhatsappClient::class)->sendText($from, __('Catatan disposisi tersimpan: :note', ['note' => $note]));
+
+                // Kirim notifikasi + instruksi ke tujuan disposisi
+                if ($disp->to_phone) {
+                    // Disposisi ke pegawai individual
+                    $targetPhone = preg_replace('/[^0-9]/', '', $disp->to_phone);
+                    if (str_starts_with($targetPhone, '0')) {
+                        $targetPhone = '62' . substr($targetPhone, 1);
+                    }
+                    if ($targetPhone) {
+                        wa_session_set($targetPhone, [
+                            'letter_id'      => $letter->id,
+                            'phase'          => 'claim_broadcast',
+                            'disposition_id' => $disp->id,
+                        ]);
+                        app(WhatsappClient::class)->sendText(
+                            $targetPhone,
+                            "*Disposisi Surat Masuk*\n\nSurat *{$letter->letter_number}* didisposisikan kepada Anda.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil."
+                        );
+                    }
+                } elseif ($disp->to_unit_id) {
+                    // Disposisi ke unit kerja – broadcast ke semua pegawai aktif di unit
+                    $unitEmployees = Employee::where('work_unit_id', $disp->to_unit_id)
+                        ->where('status', 'active')
+                        ->get();
+                    foreach ($unitEmployees as $emp) {
+                        if (! $emp->phone_number) continue;
+                        $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
+                        if (str_starts_with($targetPhone, '0')) {
+                            $targetPhone = '62' . substr($targetPhone, 1);
+                        }
+                        if (! $targetPhone || $targetPhone === $from) continue;
+                        wa_session_set($targetPhone, [
+                            'letter_id'      => $letter->id,
+                            'phase'          => 'claim_broadcast',
+                            'disposition_id' => $disp->id,
+                        ]);
+                        app(WhatsappClient::class)->sendText(
+                            $targetPhone,
+                            "*Disposisi Surat Masuk*\n\nSurat *{$letter->letter_number}* menunggu penanggung jawab.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil disposisi ini."
+                        );
+                    }
+                }
             } else {
                 app(WhatsappClient::class)->sendText($from, __('Tidak menemukan disposisi untuk diberi catatan.'));
             }
         }
         wa_session_forget($from);
+        // Hapus surat yang sudah selesai dari multi-session
+        if ($letterId) {
+            wa_multi_session_remove_letter($from, $letterId);
+        }
+        // Jika masih ada surat pending, tawarkan daftar
+        $multi = wa_multi_session_get($from);
+        if (! empty($multi['letters'])) {
+            $count = count($multi['letters']);
+            app(WhatsappClient::class)->sendText(
+                $from,
+                "Masih ada *{$count}* surat pending. Ketik *DAFTAR* untuk lihat, atau *BANTUAN* untuk perintah lain."
+            );
+        }
     }
 
     private function handleButtonChoice(?string $from, string $action): void
@@ -518,7 +803,7 @@ class WhatsappWebhookController extends Controller
 
         app(WhatsappClient::class)->sendNumberedList(
             $from,
-            __('Hasil ":keyword" – pilih pegawai tujuan disposisi surat :num:', [
+            __('Hasil ":keyword" - pilih pegawai tujuan disposisi surat :num:', [
                 'keyword' => $keyword,
                 'num'     => $letter?->letter_number ?? '-',
             ]),
@@ -602,32 +887,13 @@ class WhatsappWebhookController extends Controller
                 'created_at'      => now(),
                 'updated_at'      => now(),
             ]);
-            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Unit Kerja: :name', ['name' => $workUnit->name]));
+            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Unit Kerja: :name. Ketik catatan instruksi untuk dikirimkan ke pegawai:', ['name' => $workUnit->name]));
             $session            = $from ? wa_session_get($from) ?? [] : [];
             $session['expect']         = 'disposition_note';
             $session['letter_id']      = $letter?->id;
             $session['disposition_id'] = $disp?->id;
             wa_session_set($from, $session);
-
-            // Broadcast tombol AMBIL ke semua pegawai aktif di unit
-            $unitEmployees = Employee::where('work_unit_id', $workUnit->id)->where('status', 'active')->get();
-            foreach ($unitEmployees as $emp) {
-                if (! $emp->phone_number) continue;
-                $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
-                if (str_starts_with($targetPhone, '0')) {
-                    $targetPhone = '62' . substr($targetPhone, 1);
-                }
-                if ($targetPhone === $from) continue;
-                wa_session_set($targetPhone, [
-                    'letter_id'      => $letter?->id,
-                    'phase'          => 'claim_broadcast',
-                    'disposition_id' => $disp?->id,
-                ]);
-                app(WhatsappClient::class)->sendText(
-                    $targetPhone,
-                    __("Surat *:num* menunggu penanggung jawab.\n\nBalas *1* untuk mengambil disposisi ini.", ['num' => $letter->letter_number])
-                );
-            }
+            // Notifikasi ke pegawai unit akan dikirim setelah catatan instruksi tersimpan
         } elseif (str_starts_with($id, 'emp:')) {
             $empId    = (int) substr($id, 4);
             $employee = Employee::find($empId);
@@ -676,7 +942,7 @@ class WhatsappWebhookController extends Controller
                 'created_at'      => now(),
                 'updated_at'      => now(),
             ]);
-            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Pegawai: :name', ['name' => $employee->name]));
+            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Pegawai: :name. Ketik catatan instruksi untuk dikirimkan:', ['name' => $employee->name]));
             $session              = $from ? wa_session_get($from) ?? [] : [];
             $session['expect']    = 'disposition_note';
             $session['letter_id'] = $letter?->id;

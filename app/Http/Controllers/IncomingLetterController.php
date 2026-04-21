@@ -120,34 +120,48 @@ class IncomingLetterController extends Controller
                     $letter->received_date?->translatedFormat('d M Y') ?? $letter->received_date?->toDateString(),
                     route('incoming_letters.show', $letter->id), // inline document link as body placeholder
                 ];
-                // Store WA session context for disposition flow
-                wa_session_set($pimpinanPhone, [
-                    'letter_id' => $letter->id,
-                    'phase' => 'template_sent',
-                    'ts' => now()->timestamp,
-                ]);
-                // Multi-letter tracking
+
+                // Multi-letter tracking – tambah dulu sebelum cek session
                 wa_multi_session_add_letter($pimpinanPhone, $letter->id);
-                $multi = wa_multi_session_get($pimpinanPhone);
-                if ($multi && count($multi['letters']) > 1) {
+                $multi          = wa_multi_session_get($pimpinanPhone);
+                $existingSession = wa_session_get($pimpinanPhone);
+                $isMidFlow      = wa_session_is_mid_flow($existingSession);
+
+                if ($isMidFlow) {
+                    // Jangan timpa session yang sedang berjalan – kirim notif singkat saja
+                    $count = count($multi['letters'] ?? []);
                     \App\Jobs\SendWhatsappMessageJob::dispatch(
                         to: $pimpinanPhone,
                         mode: 'text',
-                        templateOrText: __('Anda memiliki :count surat menunggu tindakan. Aktif: :active. Gunakan SWITCH <nomor_surat> untuk berpindah konteks.', [
-                            'count' => count($multi['letters']),
-                            'active' => $letter->letter_number,
-                        ]),
+                        templateOrText: "📩 *Surat baru masuk:* {$letter->letter_number}\nDari: {$letter->sender}\nPerihal: {$letter->subject}\n\nTotal pending: {$count} surat. Selesaikan alur saat ini, atau ketik *GANTI* untuk pindah surat.",
                         variables: [],
-                        correlationId: 'multi-letter-hint-' . $letter->id
+                        correlationId: 'letter-notify-mid-flow-' . $letter->id
+                    );
+                } else {
+                    // Idle – set session normal dan kirim template
+                    wa_session_set($pimpinanPhone, [
+                        'letter_id' => $letter->id,
+                        'phase'     => 'awaiting_action',
+                        'ts'        => now()->timestamp,
+                    ]);
+                    wa_multi_session_set_active($pimpinanPhone, $letter->id);
+                    if ($multi && count($multi['letters']) > 1) {
+                        \App\Jobs\SendWhatsappMessageJob::dispatch(
+                            to: $pimpinanPhone,
+                            mode: 'text',
+                            templateOrText: "📋 Total {$letter->letter_number} adalah surat ke-" . count($multi['letters']) . " yang pending. Ketik *DAFTAR* untuk lihat semua.",
+                            variables: [],
+                            correlationId: 'multi-letter-hint-' . $letter->id
+                        );
+                    }
+                    \App\Jobs\SendWhatsappMessageJob::dispatch(
+                        to: $pimpinanPhone,
+                        mode: 'template',
+                        templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
+                        variables: $variables,
+                        correlationId: 'letter-create-' . $letter->id
                     );
                 }
-                \App\Jobs\SendWhatsappMessageJob::dispatch(
-                    to: $pimpinanPhone,
-                    mode: 'template',
-                    templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
-                    variables: $variables,
-                    correlationId: 'letter-create-' . $letter->id
-                );
             }
         } catch (\Throwable $e) {
             // Non-blocking: log and continue
@@ -253,13 +267,17 @@ class IncomingLetterController extends Controller
                 $incoming_letter->received_date?->translatedFormat('d M Y') ?? $incoming_letter->received_date?->toDateString(),
                 route('incoming_letters.show', $incoming_letter->id),
             ];
-            // Refresh WA session context for this letter (reset active if needed)
-            wa_session_set($pimpinanPhone, [
-                'letter_id' => $incoming_letter->id,
-                'phase' => 'template_sent_manual',
-                'ts' => now()->timestamp,
-            ]);
+            // Refresh WA session – jangan timpa jika sedang mid-flow
             wa_multi_session_add_letter($pimpinanPhone, $incoming_letter->id);
+            $existingSession = wa_session_get($pimpinanPhone);
+            if (! wa_session_is_mid_flow($existingSession)) {
+                wa_session_set($pimpinanPhone, [
+                    'letter_id' => $incoming_letter->id,
+                    'phase'     => 'awaiting_action',
+                    'ts'        => now()->timestamp,
+                ]);
+                wa_multi_session_set_active($pimpinanPhone, $incoming_letter->id);
+            }
             \App\Jobs\SendWhatsappMessageJob::dispatch(
                 to: $pimpinanPhone,
                 mode: 'template',

@@ -77,6 +77,79 @@ if (!function_exists('wa_multi_session_set_active')) {
     }
 }
 
+if (!function_exists('wa_multi_session_remove_letter')) {
+    /**
+     * Hapus satu surat dari daftar multi-session (misal setelah selesai diproses).
+     * Jika surat yang dihapus adalah yang aktif, otomatis set aktif ke yang pertama tersisa.
+     */
+    function wa_multi_session_remove_letter(string $phone, int $letterId): void
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $key  = 'wa_session_multi:' . $norm;
+        $data = cache()->get($key);
+        if (!$data) return;
+        $data['letters'] = array_values(array_filter($data['letters'], fn($id) => $id !== $letterId));
+        if ($data['active_letter_id'] === $letterId) {
+            $data['active_letter_id'] = $data['letters'][0] ?? null;
+        }
+        if (empty($data['letters'])) {
+            cache()->forget($key);
+        } else {
+            cache()->put($key, $data, 1800);
+        }
+    }
+}
+
+if (!function_exists('wa_session_is_mid_flow')) {
+    /**
+     * Cek apakah user sedang di tengah alur aktif (bukan idle/notif awal).
+     * Phase "idle" dianggap aman untuk ditimpa oleh notifikasi surat baru.
+     */
+    function wa_session_is_mid_flow(?array $session): bool
+    {
+        if (!$session) return false;
+        $safePhases = [null, 'template_sent', 'template_sent_manual', 'switched', 'awaiting_action'];
+        return !in_array($session['phase'] ?? null, $safePhases, true);
+    }
+}
+
+if (!function_exists('wa_session_save_snapshot')) {
+    /**
+     * Simpan snapshot session saat ini agar bisa di-restore setelah konfirmasi GANTI.
+     */
+    function wa_session_save_snapshot(string $phone): void
+    {
+        $norm    = preg_replace('/[^0-9]/', '', $phone);
+        $current = cache()->get('wa_session:' . $norm);
+        if ($current) {
+            cache()->put('wa_session_snap:' . $norm, $current, 300); // 5 menit
+        }
+    }
+}
+
+if (!function_exists('wa_session_restore_snapshot')) {
+    /**
+     * Restore session dari snapshot dan hapus snapshot-nya.
+     */
+    function wa_session_restore_snapshot(string $phone): bool
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $snap = cache()->get('wa_session_snap:' . $norm);
+        if (!$snap) return false;
+        cache()->put('wa_session:' . $norm, $snap, 600);
+        cache()->forget('wa_session_snap:' . $norm);
+        return true;
+    }
+}
+
+if (!function_exists('wa_session_forget_snapshot')) {
+    function wa_session_forget_snapshot(string $phone): void
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        cache()->forget('wa_session_snap:' . $norm);
+    }
+}
+
 // Simple rate limit helpers (fixed window 60s)
 if (!function_exists('wa_rate_limit_hit')) {
     function wa_rate_limit_hit(string $phone, string $action): int
