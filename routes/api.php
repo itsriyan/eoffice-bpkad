@@ -15,5 +15,6 @@ use App\Http\Controllers\WhatsappWebhookController;
 */
 
 // Webhook routes (public, no auth/CSRF)
+// Fonnte mengirim semua event via POST; GET tetap tersedia untuk health-check
 Route::post('/webhook/whatsapp', [WhatsappWebhookController::class, 'handle']);
 Route::get('/webhook/whatsapp', [WhatsappWebhookController::class, 'verify']);

@@ -32,26 +32,28 @@ class SendWhatsappMessageJob implements ShouldQueue
             ? $client->sendText($this->to, $this->templateOrText)
             : $client->sendTemplate($this->to, $this->templateOrText, null, $this->buildComponents());
 
-        $messageId = $result['response']['messages'][0]['id'] ?? null;
-        $success = $result['success'];
+        // Fonnte: {"status": true, "id": "...", "detail": "..."}
+        $messageId = $result['response']['id'] ?? null;
+        $success   = $result['success'];
+
         DB::table('integration_logs')->insert([
-            'service' => 'whatsapp',
-            'endpoint' => $this->mode,
-            'method' => 'POST',
-            'request_payload' => json_encode([
-                'to' => $this->to,
-                'mode' => $this->mode,
+            'service'          => 'whatsapp',
+            'endpoint'         => $this->mode,
+            'method'           => 'POST',
+            'request_payload'  => json_encode([
+                'to'               => $this->to,
+                'mode'             => $this->mode,
                 'template_or_text' => $this->templateOrText,
-                'variables' => $this->variables,
+                'variables'        => $this->variables,
             ]),
-            'response_body' => json_encode($result['response']),
-            'status_code' => $result['response']['error']['code'] ?? ($success ? 200 : null),
-            'success' => $success,
-            'attempt' => $this->attempts(),
-            'message_id' => $messageId,
-            'correlation_id' => $this->correlationId,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'response_body'    => json_encode($result['response']),
+            'status_code'      => $success ? 200 : ($result['response']['error'] ? 500 : null),
+            'success'          => $success,
+            'attempt'          => $this->attempts(),
+            'message_id'       => $messageId,
+            'correlation_id'   => $this->correlationId,
+            'created_at'       => now(),
+            'updated_at'       => now(),
         ]);
 
         if (!$success) {

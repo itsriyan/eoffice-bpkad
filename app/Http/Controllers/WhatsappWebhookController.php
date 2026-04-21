@@ -9,275 +9,219 @@ use App\Services\Integrations\WhatsappClient;
 use App\Models\WorkUnit;
 use App\Models\Employee;
 
+/**
+ * Webhook handler untuk Fonnte (https://fonnte.com).
+ *
+ * Format payload Fonnte (POST):
+ * {
+ *   "data": {
+ *     "message" : "teks pesan / judul tombol / judul baris list",
+ *     "sender"  : "628xxx@s.whatsapp.net",
+ *     "name"    : "Nama Pengirim",
+ *     "device"  : "628xxx",
+ *     "id"      : "<id_pesan | id_tombol | id_baris>",
+ *     "type"    : "text | button | list | image | ...",
+ *     "url"     : ""
+ *   },
+ *   "token": "<device_token>"
+ * }
+ */
 class WhatsappWebhookController extends Controller
 {
     /**
-     * GET handler for webhook verification (Meta challenge).
+     * GET – tetap tersedia agar URL webhook dapat di-ping.
+     * Fonnte tidak menggunakan challenge verification seperti Meta.
      */
     public function verify(Request $request)
     {
-        $mode = $request->query('hub_mode');
-        $token = $request->query('hub_verify_token');
-        $challenge = $request->query('hub_challenge');
-
-        $expected = config('e-office.whatsapp.verify_token'); // Add to config/env if not present
-
-        if ($token === null or $token === '') {
-            return response('', 200);
-        }
-
-        if ($token === $expected) {
-            Log::channel('whatsapp')->info('Webhook verification request', [
-                'mode' => $mode,
-                'token_provided' => $token ? 'yes' : 'no',
-                'challenge_length' => strlen($challenge ?? ''),
-            ]);
-
-            // Log the verification attempt
-            DB::table('integration_logs')->insert([
-                'service' => 'whatsapp-webhook',
-                'endpoint' => 'verification',
-                'method' => 'GET',
-                'request_payload' => json_encode($request->query()),
-                'response_body' => null,
-                'status_code' => $mode === 'subscribe' && $token && $token === $expected ? 200 : 403,
-                'success' => $mode === 'subscribe' && $token && $token === $expected,
-                'attempt' => 1,
-                'message_id' => null,
-                'correlation_id' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
-
-
-        if ($mode === 'subscribe' && $token && $token === $expected) {
-            return response($challenge, 200);
-        }
-        return response('Invalid verification token', 403);
+        return response('OK', 200);
     }
 
     /**
-     * POST handler for incoming WhatsApp events.
+     * POST – terima pesan masuk dari Fonnte.
      */
     public function handle(Request $request)
     {
         $payload = $request->all();
+        $data    = $payload['data'] ?? null;
 
-        Log::channel('whatsapp')->info('Incoming webhook event', [
-            'object' => $payload['object'] ?? 'unknown',
-            'entry_count' => count($payload['entry'] ?? []),
+        Log::channel('whatsapp')->info('Incoming Fonnte webhook', [
+            'type'   => $data['type'] ?? 'unknown',
+            'sender' => $data['sender'] ?? null,
         ]);
 
-        // Store raw webhook for audit/investigation
+        // Simpan raw webhook untuk audit
         DB::table('integration_logs')->insert([
-            'service' => 'whatsapp-webhook',
-            'endpoint' => 'incoming',
-            'method' => 'POST',
-            'request_payload' => json_encode($payload),
-            'response_body' => null,
-            'status_code' => 200,
-            'success' => true,
-            'attempt' => 1,
-            'message_id' => $payload['entry'][0]['changes'][0]['value']['messages'][0]['id'] ?? null,
-            'correlation_id' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'service'          => 'whatsapp-webhook',
+            'endpoint'         => 'incoming',
+            'method'           => 'POST',
+            'request_payload'  => json_encode($payload),
+            'response_body'    => null,
+            'status_code'      => 200,
+            'success'          => true,
+            'attempt'          => 1,
+            'message_id'       => $data['id'] ?? null,
+            'correlation_id'   => null,
+            'created_at'       => now(),
+            'updated_at'       => now(),
         ]);
 
-        $messages = $payload['entry'][0]['changes'][0]['value']['messages'] ?? [];
-        foreach ($messages as $message) {
-            $from = $message['from'] ?? null; // sender phone
-            // If expecting a note (text) capture
-            $session = $from ? wa_session_get($from) : null;
-            $multi = $from ? wa_multi_session_get($from) : null;
-            // SWITCH command handling
-            if (($message['type'] ?? '') === 'text') {
-                $textBody = $message['text']['body'] ?? '';
-                // BANTUAN command
-                if (preg_match('/^BANTUAN$/i', trim($textBody))) {
-                    $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
-                    if (wa_rate_limit_exceeded($from, 'help', $limit)) {
-                        app(WhatsappClient::class)->sendText($from, __('Terlalu sering meminta bantuan. Coba lagi sebentar.'));
-                        DB::table('integration_logs')->insert([
-                            'service' => 'whatsapp-webhook',
-                            'endpoint' => 'rate-help',
-                            'method' => 'SYSTEM',
-                            'request_payload' => json_encode(['phone' => $from]),
-                            'response_body' => null,
-                            'status_code' => 429,
-                            'success' => false,
-                            'attempt' => 1,
-                            'message_id' => $message['id'] ?? null,
-                            'correlation_id' => null,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                        continue;
-                    }
-                    wa_rate_limit_hit($from, 'help');
-                    if ($multi && $multi['letters']) {
-                        $letters = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])->get();
-                        $activeId = $multi['active_letter_id'];
-                        $lines = [];
-                        foreach ($letters as $l) {
-                            $prefix = $l->id === $activeId ? '*' : '-';
-                            $lines[] = $prefix . ' ' . $l->letter_number . ' (' . $l->status->value . ')';
-                        }
-                        $usage = __('Perintah: SWITCH <nomor_surat> untuk berpindah konteks. Kirim catatan setelah memilih target.');
-                        app(WhatsappClient::class)->sendText($from, __('Surat pending:\n:lines\n:usage', [
-                            'lines' => implode("\n", $lines),
-                            'usage' => $usage,
-                        ]));
-                    } else {
-                        app(WhatsappClient::class)->sendText($from, __('Tidak ada surat pending.'));
-                    }
-                    continue;
+        if (! $data) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        // Ekstrak info pesan dari format Fonnte
+        // sender bisa berformat "628xxx@s.whatsapp.net" – ambil hanya angkanya
+        $from    = preg_replace('/@.*/', '', $data['sender'] ?? '');
+        $type    = $data['type'] ?? 'text';
+        $msgText = $data['message'] ?? '';
+        $msgId   = $data['id'] ?? null;
+
+        if (! $from) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        $session = wa_session_get($from);
+        $multi   = wa_multi_session_get($from);
+
+        // ── Pesan teks ───────────────────────────────────────────────────────
+        if ($type === 'text') {
+            // BANTUAN command
+            if (preg_match('/^BANTUAN$/i', trim($msgText))) {
+                $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
+                if (wa_rate_limit_exceeded($from, 'help', $limit)) {
+                    app(WhatsappClient::class)->sendText($from, __('Terlalu sering meminta bantuan. Coba lagi sebentar.'));
+                    $this->logRateLimit($from, 'rate-help', $msgId, 429);
+                    return response()->json(['status' => 'ok']);
                 }
-                if (preg_match('/^SWITCH\s+(.+)/i', $textBody, $m)) {
-                    $limit = config('e-office.whatsapp.rate_limit.switch_per_minute');
-                    if (wa_rate_limit_exceeded($from, 'switch', $limit)) {
-                        app(WhatsappClient::class)->sendText($from, __('Terlalu sering ganti konteks. Tunggu sebentar.'));
-                        DB::table('integration_logs')->insert([
-                            'service' => 'whatsapp-webhook',
-                            'endpoint' => 'rate-switch',
-                            'method' => 'SYSTEM',
-                            'request_payload' => json_encode(['phone' => $from]),
-                            'response_body' => null,
-                            'status_code' => 429,
-                            'success' => false,
-                            'attempt' => 1,
-                            'message_id' => $message['id'] ?? null,
-                            'correlation_id' => null,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                        continue;
-                    }
-                    wa_rate_limit_hit($from, 'switch');
-                    $targetNumber = trim($m[1]);
-                    $letter = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
-                    if ($letter && $multi && in_array($letter->id, $multi['letters'], true)) {
-                        wa_multi_session_set_active($from, $letter->id);
-                        app(WhatsappClient::class)->sendText($from, __('Konteks berpindah ke surat :num', ['num' => $letter->letter_number]));
-                        // Refresh single-letter session
-                        wa_session_set($from, [
-                            'letter_id' => $letter->id,
-                            'phase' => 'switched',
-                            'ts' => now()->timestamp,
-                        ]);
-                    } else {
-                        app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan atau tidak dalam daftar pending.'));
-                    }
-                    continue; // handled
+                wa_rate_limit_hit($from, 'help');
+                if ($multi && $multi['letters']) {
+                    $letters  = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])->get();
+                    $activeId = $multi['active_letter_id'];
+                    $lines    = $letters->map(function ($l) use ($activeId) {
+                        $prefix = $l->id === $activeId ? '*' : '-';
+                        return $prefix . ' ' . $l->letter_number . ' (' . $l->status->value . ')';
+                    })->implode("\n");
+                    $usage = __('Perintah: SWITCH <nomor_surat> untuk berpindah konteks.');
+                    app(WhatsappClient::class)->sendText($from, __('Surat pending:') . "\n" . $lines . "\n\n" . $usage);
+                } else {
+                    app(WhatsappClient::class)->sendText($from, __('Tidak ada surat pending.'));
                 }
+                return response()->json(['status' => 'ok']);
             }
-            if (($message['type'] ?? '') === 'text' && $session && isset($session['expect'])) {
-                $this->handleExpectedNote($from, $session, $message['text']['body'] ?? '');
-                continue;
+
+            // SWITCH command
+            if (preg_match('/^SWITCH\s+(.+)/i', $msgText, $m)) {
+                $limit = config('e-office.whatsapp.rate_limit.switch_per_minute');
+                if (wa_rate_limit_exceeded($from, 'switch', $limit)) {
+                    app(WhatsappClient::class)->sendText($from, __('Terlalu sering ganti konteks. Tunggu sebentar.'));
+                    $this->logRateLimit($from, 'rate-switch', $msgId, 429);
+                    return response()->json(['status' => 'ok']);
+                }
+                wa_rate_limit_hit($from, 'switch');
+                $targetNumber = trim($m[1]);
+                $letter = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
+                if ($letter && $multi && in_array($letter->id, $multi['letters'], true)) {
+                    wa_multi_session_set_active($from, $letter->id);
+                    wa_session_set($from, [
+                        'letter_id' => $letter->id,
+                        'phase'     => 'switched',
+                        'ts'        => now()->timestamp,
+                    ]);
+                    app(WhatsappClient::class)->sendText($from, __('Konteks berpindah ke surat :num', ['num' => $letter->letter_number]));
+                } else {
+                    app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan atau tidak dalam daftar pending.'));
+                }
+                return response()->json(['status' => 'ok']);
             }
-            // Button replies vary by structure
-            $action = null;
-            if (($message['type'] ?? '') === 'button') {
-                $action = $message['button']['payload'] ?? null;
-            } elseif (($message['type'] ?? '') === 'interactive' && isset($message['interactive']['button_reply'])) {
-                $action = $message['interactive']['button_reply']['id'] ?? $message['interactive']['button_reply']['title'] ?? null;
-                if (in_array($action, ['choose_unit', 'choose_employee'], true)) {
-                    $this->handleButtonChoice($from, $action);
-                    continue;
-                }
-                if ($action === 'claim_disposition') {
-                    $limit = config('e-office.whatsapp.rate_limit.claim_per_minute');
-                    if (wa_rate_limit_exceeded($from, 'claim', $limit)) {
-                        app(WhatsappClient::class)->sendText($from, __('Terlalu banyak percobaan klaim. Coba lagi nanti.'));
-                        DB::table('integration_logs')->insert([
-                            'service' => 'whatsapp-webhook',
-                            'endpoint' => 'rate-claim',
-                            'method' => 'SYSTEM',
-                            'request_payload' => json_encode(['phone' => $from]),
-                            'response_body' => null,
-                            'status_code' => 429,
-                            'success' => false,
-                            'attempt' => 1,
-                            'message_id' => $message['id'] ?? null,
-                            'correlation_id' => null,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                        continue;
-                    }
-                    wa_rate_limit_hit($from, 'claim');
-                    $this->handleClaimDisposition($from, $message);
-                    continue;
-                }
-            } elseif (($message['type'] ?? '') === 'interactive' && isset($message['interactive']['list_reply'])) {
-                $action = $message['interactive']['list_reply']['id'] ?? null; // list row id
-                if ($action) {
-                    $this->handleListSelection($from, $action, $message);
-                    continue; // skip normal action switch
-                }
-            }
-            if ($action) {
-                $normalized = strtoupper(trim($action));
-                switch ($normalized) {
-                    case 'DISPOSISI':
-                        $this->handleDisposisi($from, $message);
-                        break;
-                    case 'ARSIPKAN':
-                        $this->requestArchiveNote($from, $message);
-                        break;
-                    case 'TOLAK':
-                        $this->requestRejectNote($from, $message);
-                        break;
-                    default:
-                        Log::channel('whatsapp')->info('Unhandled button action', ['action' => $normalized, 'from' => $from]);
-                }
+
+            // Catatan yang sedang ditunggu (expect)
+            if ($session && isset($session['expect'])) {
+                $this->handleExpectedNote($from, $session, $msgText);
+                return response()->json(['status' => 'ok']);
             }
         }
+
+        // ── Balasan tombol (Fonnte type = "button") ──────────────────────────
+        if ($type === 'button' && $msgId !== null) {
+            // $msgId pada balasan tombol berisi buttonId yang di-set saat pengiriman
+            $action     = $msgId;
+            $normalized = strtoupper(trim($action));
+
+            if (in_array($normalized, ['CHOOSE_UNIT', 'CHOOSE_EMPLOYEE'], true)) {
+                $this->handleButtonChoice($from, strtolower($normalized));
+                return response()->json(['status' => 'ok']);
+            }
+
+            if ($normalized === 'CLAIM_DISPOSITION') {
+                $limit = config('e-office.whatsapp.rate_limit.claim_per_minute');
+                if (wa_rate_limit_exceeded($from, 'claim', $limit)) {
+                    app(WhatsappClient::class)->sendText($from, __('Terlalu banyak percobaan klaim. Coba lagi nanti.'));
+                    $this->logRateLimit($from, 'rate-claim', $msgId, 429);
+                    return response()->json(['status' => 'ok']);
+                }
+                wa_rate_limit_hit($from, 'claim');
+                $this->handleClaimDisposition($from, ['id' => $msgId]);
+                return response()->json(['status' => 'ok']);
+            }
+
+            switch ($normalized) {
+                case 'DISPOSISI':
+                    $this->handleDisposisi($from, ['id' => $msgId]);
+                    break;
+                case 'ARSIPKAN':
+                    $this->requestArchiveNote($from, ['id' => $msgId]);
+                    break;
+                case 'TOLAK':
+                    $this->requestRejectNote($from, ['id' => $msgId]);
+                    break;
+                default:
+                    Log::channel('whatsapp')->info('Unhandled button action', ['action' => $normalized, 'from' => $from]);
+            }
+
+            return response()->json(['status' => 'ok']);
+        }
+
+        // ── Balasan list (Fonnte type = "list") ──────────────────────────────
+        if ($type === 'list' && $msgId !== null) {
+            // $msgId berisi row id yang di-set dalam listMessage sections
+            $this->handleListSelection($from, $msgId, ['id' => $msgId]);
+            return response()->json(['status' => 'ok']);
+        }
+
         return response()->json(['status' => 'ok']);
     }
 
+    // =========================================================================
+    // Private action handlers (tidak berubah dari implementasi sebelumnya)
+    // =========================================================================
+
     private function handleDisposisi(?string $from, array $message): void
     {
-        Log::channel('whatsapp')->info('Disposition action received', ['from' => $from, 'message_id' => $message['id'] ?? null]);
-        // Send interactive buttons asking for target type
-        if (!$from) return;
+        if (! $from) return;
         app(WhatsappClient::class)->sendInteractiveButtons($from, __('Pilih tujuan disposisi:'), [
-            ['id' => 'choose_unit', 'title' => __('Unit Kerja')],
+            ['id' => 'choose_unit',     'title' => __('Unit Kerja')],
             ['id' => 'choose_employee', 'title' => __('Pegawai')],
         ]);
     }
 
-    private function handleArchive(?string $from, array $message): void
-    {
-        Log::channel('whatsapp')->info('Archive action received', ['from' => $from, 'message_id' => $message['id'] ?? null]);
-        // TODO: Implement letter archive marking
-    }
-
-    private function handleReject(?string $from, array $message): void
-    {
-        Log::channel('whatsapp')->info('Reject action received', ['from' => $from, 'message_id' => $message['id'] ?? null]);
-        // TODO: Implement letter rejection logic
-    }
-
     private function handleClaimDisposition(?string $from, array $message): void
     {
-        if (!$from) return;
+        if (! $from) return;
         $session = wa_session_get($from) ?? [];
-        $dispId = $session['disposition_id'] ?? null;
-        if (!$dispId) {
+        $dispId  = $session['disposition_id'] ?? null;
+        if (! $dispId) {
             app(WhatsappClient::class)->sendText($from, __('Tidak ada disposisi untuk diambil.'));
             return;
         }
         $disp = \App\Models\Disposition::find($dispId);
-        if (!$disp) {
+        if (! $disp) {
             app(WhatsappClient::class)->sendText($from, __('Disposisi tidak ditemukan.'));
             return;
         }
-        // Attempt claim (idempotent)
         $claimedUser = Employee::where('phone_number', 'like', '%' . substr($from, -9) . '%')->first();
-        $userId = $claimedUser?->user_id;
-        if (!$userId) {
+        $userId      = $claimedUser?->user_id;
+        if (! $userId) {
             app(WhatsappClient::class)->sendText($from, __('Nomor tidak terdaftar sebagai pegawai.'));
             return;
         }
@@ -285,53 +229,46 @@ class WhatsappWebhookController extends Controller
             ->whereNull('claimed_by_user_id')
             ->update([
                 'claimed_by_user_id' => $userId,
-                'claimed_at' => now(),
-                'to_user_id' => $userId,
-                'to_name' => $claimedUser->name,
-                'to_phone' => $claimedUser->phone_number,
-                'status' => \App\Enums\DispositionStatus::Received,
-                'received_at' => now(),
+                'claimed_at'         => now(),
+                'to_user_id'         => $userId,
+                'to_name'            => $claimedUser->name,
+                'to_phone'           => $claimedUser->phone_number,
+                'status'             => \App\Enums\DispositionStatus::Received,
+                'received_at'        => now(),
             ]);
         if ($updated === 0) {
-            // Already claimed
-            $claimer = $disp->claimed_by_user_id ? $disp->claimedByUser?->name : __('Tidak diketahui');
+            $claimer = $disp->claimed_by_user_id ? ($disp->claimedByUser?->name ?? __('Tidak diketahui')) : __('Tidak diketahui');
             app(WhatsappClient::class)->sendText($from, __('Disposisi sudah diambil oleh :name.', ['name' => $claimer]));
             return;
         }
-        // Refresh disposition instance
         $disp->refresh();
-        // If letter status still new -> mark disposed timestamp and status
         $letter = $disp->letter;
         if ($letter && $letter->status === \App\Enums\IncomingLetterStatus::New) {
             $letter->update([
-                'status' => \App\Enums\IncomingLetterStatus::Disposed,
-                'disposed_at' => now(),
+                'status'           => \App\Enums\IncomingLetterStatus::Disposed,
+                'disposed_at'      => now(),
                 'last_disposition' => $disp->id,
             ]);
-        } else {
-            // Update last_disposition reference for tracking
-            if ($letter) {
-                $letter->update(['last_disposition' => $disp->id]);
-            }
+        } elseif ($letter) {
+            $letter->update(['last_disposition' => $disp->id]);
         }
         DB::table('integration_logs')->insert([
-            'service' => 'whatsapp-webhook',
-            'endpoint' => 'claim-disposition',
-            'method' => 'SYSTEM',
+            'service'         => 'whatsapp-webhook',
+            'endpoint'        => 'claim-disposition',
+            'method'          => 'SYSTEM',
             'request_payload' => json_encode(['disposition_id' => $disp->id, 'claimer_user_id' => $userId]),
-            'response_body' => null,
-            'status_code' => 200,
-            'success' => true,
-            'attempt' => 1,
-            'message_id' => $message['id'] ?? null,
-            'correlation_id' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'response_body'   => null,
+            'status_code'     => 200,
+            'success'         => true,
+            'attempt'         => 1,
+            'message_id'      => $message['id'] ?? null,
+            'correlation_id'  => null,
+            'created_at'      => now(),
+            'updated_at'      => now(),
         ]);
-        // Set expectation for note
         wa_session_set($from, [
-            'letter_id' => $disp->incoming_letter_id,
-            'expect' => 'disposition_note',
+            'letter_id'      => $disp->incoming_letter_id,
+            'expect'         => 'disposition_note',
             'disposition_id' => $disp->id,
         ]);
         app(WhatsappClient::class)->sendText($from, __('Anda berhasil mengambil disposisi. Kirim catatan instruksi (balas dengan teks).'));
@@ -339,8 +276,8 @@ class WhatsappWebhookController extends Controller
 
     private function requestArchiveNote(?string $from, array $message): void
     {
-        if (!$from) return;
-        $session = wa_session_get($from) ?? [];
+        if (! $from) return;
+        $session           = wa_session_get($from) ?? [];
         $session['expect'] = 'archive_note';
         wa_session_set($from, $session);
         app(WhatsappClient::class)->sendText($from, __('Ketik catatan pengarsipan, lalu kirim.'));
@@ -348,8 +285,8 @@ class WhatsappWebhookController extends Controller
 
     private function requestRejectNote(?string $from, array $message): void
     {
-        if (!$from) return;
-        $session = wa_session_get($from) ?? [];
+        if (! $from) return;
+        $session           = wa_session_get($from) ?? [];
         $session['expect'] = 'reject_note';
         wa_session_set($from, $session);
         app(WhatsappClient::class)->sendText($from, __('Ketik alasan penolakan, lalu kirim.'));
@@ -357,104 +294,90 @@ class WhatsappWebhookController extends Controller
 
     private function handleExpectedNote(string $from, array $session, string $note): void
     {
-        $expect = $session['expect'];
+        $expect   = $session['expect'];
         $letterId = $session['letter_id'] ?? null;
-        $letter = $letterId ? \App\Models\IncomingLetter::find($letterId) : null;
-        if (!$letter) {
+        $letter   = $letterId ? \App\Models\IncomingLetter::find($letterId) : null;
+        if (! $letter) {
             app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan dalam sesi.'));
             wa_session_forget($from);
             return;
         }
+        $limit = config('e-office.whatsapp.rate_limit.note_per_minute');
+        if (wa_rate_limit_exceeded($from, 'note', $limit)) {
+            app(WhatsappClient::class)->sendText($from, __('Terlalu banyak catatan dikirim. Coba lagi nanti.'));
+            return;
+        }
+        wa_rate_limit_hit($from, 'note');
         if ($expect === 'archive_note') {
-            $limit = config('e-office.whatsapp.rate_limit.note_per_minute');
-            if (wa_rate_limit_exceeded($from, 'note', $limit)) {
-                app(WhatsappClient::class)->sendText($from, __('Terlalu banyak catatan dikirim. Coba lagi nanti.'));
-                return;
-            }
-            wa_rate_limit_hit($from, 'note');
             $letter->update([
-                'status' => \App\Enums\IncomingLetterStatus::Archived,
-                'archived_at' => now(),
+                'status'           => \App\Enums\IncomingLetterStatus::Archived,
+                'archived_at'      => now(),
                 'last_disposition' => 'Arsipkan',
             ]);
             DB::table('integration_logs')->insert([
-                'service' => 'whatsapp-webhook',
-                'endpoint' => 'archive-note',
-                'method' => 'SYSTEM',
+                'service'         => 'whatsapp-webhook',
+                'endpoint'        => 'archive-note',
+                'method'          => 'SYSTEM',
                 'request_payload' => json_encode(['note' => $note, 'letter_id' => $letterId]),
-                'response_body' => null,
-                'status_code' => 200,
-                'success' => true,
-                'attempt' => 1,
-                'message_id' => null,
-                'correlation_id' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'response_body'   => null,
+                'status_code'     => 200,
+                'success'         => true,
+                'attempt'         => 1,
+                'message_id'      => null,
+                'correlation_id'  => null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
             ]);
             app(WhatsappClient::class)->sendText($from, __('Surat diarsipkan. Catatan: :note', ['note' => $note]));
         } elseif ($expect === 'reject_note') {
-            $limit = config('e-office.whatsapp.rate_limit.note_per_minute');
-            if (wa_rate_limit_exceeded($from, 'note', $limit)) {
-                app(WhatsappClient::class)->sendText($from, __('Terlalu banyak catatan dikirim. Coba lagi nanti.'));
-                return;
-            }
-            wa_rate_limit_hit($from, 'note');
             $letter->update([
-                'status' => \App\Enums\IncomingLetterStatus::Rejected,
+                'status'           => \App\Enums\IncomingLetterStatus::Rejected,
                 'last_disposition' => 'Ditolak',
             ]);
-            // Create disposition record with rejection reason for audit
             \App\Models\Disposition::create([
                 'incoming_letter_id' => $letter->id,
-                'from_user_id' => $letter->user_id,
-                'from_name' => $letter->user?->name ?? 'System',
-                'from_phone' => $from,
-                'rejection_reason' => $note,
-                'status' => \App\Enums\DispositionStatus::Rejected,
-                'channel' => 'whatsapp',
-                'sequence' => ($letter->dispositions()->count() + 1),
+                'from_user_id'       => $letter->user_id,
+                'from_name'          => $letter->user?->name ?? 'System',
+                'from_phone'         => $from,
+                'rejection_reason'   => $note,
+                'status'             => \App\Enums\DispositionStatus::Rejected,
+                'channel'            => 'whatsapp',
+                'sequence'           => ($letter->dispositions()->count() + 1),
             ]);
             DB::table('integration_logs')->insert([
-                'service' => 'whatsapp-webhook',
-                'endpoint' => 'reject-note',
-                'method' => 'SYSTEM',
+                'service'         => 'whatsapp-webhook',
+                'endpoint'        => 'reject-note',
+                'method'          => 'SYSTEM',
                 'request_payload' => json_encode(['note' => $note, 'letter_id' => $letterId]),
-                'response_body' => null,
-                'status_code' => 200,
-                'success' => true,
-                'attempt' => 1,
-                'message_id' => null,
-                'correlation_id' => null,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'response_body'   => null,
+                'status_code'     => 200,
+                'success'         => true,
+                'attempt'         => 1,
+                'message_id'      => null,
+                'correlation_id'  => null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
             ]);
             app(WhatsappClient::class)->sendText($from, __('Surat ditolak. Alasan: :note', ['note' => $note]));
         } elseif ($expect === 'disposition_note') {
-            $limit = config('e-office.whatsapp.rate_limit.note_per_minute');
-            if (wa_rate_limit_exceeded($from, 'note', $limit)) {
-                app(WhatsappClient::class)->sendText($from, __('Terlalu banyak catatan dikirim. Coba lagi nanti.'));
-                return;
-            }
-            wa_rate_limit_hit($from, 'note');
-            // Find last created disposition for this letter (sequence highest) without instruction
             $disp = \App\Models\Disposition::where('incoming_letter_id', $letter->id)
                 ->orderByDesc('id')
                 ->first();
             if ($disp) {
                 $disp->update(['instruction' => $note]);
                 DB::table('integration_logs')->insert([
-                    'service' => 'whatsapp-webhook',
-                    'endpoint' => 'disposition-note',
-                    'method' => 'SYSTEM',
+                    'service'         => 'whatsapp-webhook',
+                    'endpoint'        => 'disposition-note',
+                    'method'          => 'SYSTEM',
                     'request_payload' => json_encode(['note' => $note, 'letter_id' => $letterId, 'disposition_id' => $disp->id]),
-                    'response_body' => null,
-                    'status_code' => 200,
-                    'success' => true,
-                    'attempt' => 1,
-                    'message_id' => null,
-                    'correlation_id' => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'response_body'   => null,
+                    'status_code'     => 200,
+                    'success'         => true,
+                    'attempt'         => 1,
+                    'message_id'      => null,
+                    'correlation_id'  => null,
+                    'created_at'      => now(),
+                    'updated_at'      => now(),
                 ]);
                 app(WhatsappClient::class)->sendText($from, __('Catatan disposisi tersimpan: :note', ['note' => $note]));
             } else {
@@ -464,184 +387,209 @@ class WhatsappWebhookController extends Controller
         wa_session_forget($from);
     }
 
+    private function handleButtonChoice(?string $from, string $action): void
+    {
+        if (! $from) return;
+        $session  = wa_session_get($from) ?? [];
+        $multi    = wa_multi_session_get($from);
+        $letterId = $session['letter_id'] ?? ($multi['active_letter_id'] ?? null);
+        $letter   = $letterId ? \App\Models\IncomingLetter::find($letterId) : null;
+        if ($action === 'choose_unit') {
+            $units    = WorkUnit::limit(10)->get();
+            $sections = [[
+                'title' => __('Unit Kerja'),
+                'rows'  => $units->map(fn ($u) => [
+                    'id'          => 'unit:' . $u->id,
+                    'title'       => $u->name,
+                    'description' => $u->description ?? '',
+                ])->all(),
+            ]];
+            app(WhatsappClient::class)->sendInteractiveList(
+                $from,
+                __('Pilih Unit Kerja'),
+                __('Pilih unit kerja tujuan disposisi surat :num', ['num' => $letter?->letter_number ?? '-']),
+                __('E-Office'),
+                $sections
+            );
+        } elseif ($action === 'choose_employee') {
+            $employees = Employee::where('status', 'active')->limit(10)->get();
+            $sections  = [[
+                'title' => __('Pegawai'),
+                'rows'  => $employees->map(fn ($e) => [
+                    'id'          => 'emp:' . $e->id,
+                    'title'       => $e->name,
+                    'description' => $e->position ?? '',
+                ])->all(),
+            ]];
+            app(WhatsappClient::class)->sendInteractiveList(
+                $from,
+                __('Pilih Pegawai'),
+                __('Pilih pegawai tujuan disposisi surat :num', ['num' => $letter?->letter_number ?? '-']),
+                __('E-Office'),
+                $sections
+            );
+        }
+    }
+
     private function handleListSelection(?string $from, string $id, array $message): void
     {
         Log::channel('whatsapp')->info('List selection received', ['from' => $from, 'id' => $id]);
-        $session = $from ? wa_session_get($from) : null;
+        $session  = $from ? wa_session_get($from) : null;
         $letterId = $session['letter_id'] ?? null;
-        $multi = $from ? wa_multi_session_get($from) : null;
+        $multi    = $from ? wa_multi_session_get($from) : null;
         if ($multi && $multi['active_letter_id']) {
             $letterId = $multi['active_letter_id'];
         }
         $letter = $letterId ? \App\Models\IncomingLetter::find($letterId) : null;
-        if (str_starts_with($id, 'unit:')) {
-            $unitId = (int)substr($id, 5);
-            $workUnit = WorkUnit::find($unitId);
-            if ($workUnit) {
-                $disp = null;
-                if ($letter) {
-                    // Idempotency: check existing disposition for same letter & unit
-                    $exists = \App\Models\Disposition::where('incoming_letter_id', $letter->id)
-                        ->where('to_unit_id', $unitId)
-                        ->exists();
-                    if ($exists) {
-                        app(WhatsappClient::class)->sendText($from, __('Disposisi sudah ada untuk Unit Kerja: :name', ['name' => $workUnit->name]));
-                        return;
-                    }
-                    $disp = \App\Models\Disposition::create([
-                        'incoming_letter_id' => $letter->id,
-                        'from_user_id' => $letter->user_id,
-                        'from_name' => $letter->user?->name ?? 'System',
-                        'from_phone' => $from,
-                        'to_unit_id' => $unitId,
-                        'to_unit_name' => $workUnit->name,
-                        'status' => \App\Enums\DispositionStatus::New,
-                        'channel' => 'whatsapp',
-                        'sequence' => ($letter->dispositions()->count() + 1),
-                    ]);
-                    // Update letter disposition metadata
-                    $letter->increment('disposition_count');
-                    $letter->update([
-                        'status' => \App\Enums\IncomingLetterStatus::Disposed,
-                        'disposed_at' => now(),
-                        'last_disposition' => $workUnit->name,
-                    ]);
-                }
-                DB::table('integration_logs')->insert([
-                    'service' => 'whatsapp-webhook',
-                    'endpoint' => 'create-disposition-unit',
-                    'method' => 'SYSTEM',
-                    'request_payload' => json_encode(['from' => $from, 'unit_id' => $unitId, 'letter_id' => $letterId, 'disposition_id' => $disp?->id]),
-                    'response_body' => null,
-                    'status_code' => 200,
-                    'success' => true,
-                    'attempt' => 1,
-                    'message_id' => $message['id'] ?? null,
-                    'correlation_id' => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-                app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Unit Kerja: :name', ['name' => $workUnit->name]));
-                // Expect disposition note next
-                $session = $from ? wa_session_get($from) ?? [] : [];
-                $session['expect'] = 'disposition_note';
-                $session['letter_id'] = $letter?->id;
-                wa_session_set($from, $session);
 
-                // Broadcast claim button to all active employees in unit (excluding initiator if phone matches)
-                $unitEmployees = Employee::where('work_unit_id', $workUnit->id)->where('status', 'active')->get();
-                foreach ($unitEmployees as $emp) {
-                    if (!$emp->phone_number) continue;
-                    $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
-                    if (str_starts_with($targetPhone, '0')) {
-                        $targetPhone = '62' . substr($targetPhone, 1);
-                    }
-                    // Simple skip if same as 'from'
-                    if ($targetPhone === $from) continue;
-                    wa_session_set($targetPhone, [
-                        'letter_id' => $letter?->id,
-                        'phase' => 'claim_broadcast',
-                        'disposition_id' => $disp?->id,
-                    ]);
-                    app(WhatsappClient::class)->sendInteractiveButtons($targetPhone, __('Surat :num menunggu penanggung jawab. Tekan AMBIL untuk mengambil.', ['num' => $letter->letter_number]), [
-                        ['id' => 'claim_disposition', 'title' => __('AMBIL')],
-                    ]);
-                }
-            } else {
+        if (str_starts_with($id, 'unit:')) {
+            $unitId   = (int) substr($id, 5);
+            $workUnit = WorkUnit::find($unitId);
+            if (! $workUnit) {
                 app(WhatsappClient::class)->sendText($from, __('Unit Kerja tidak ditemukan.'));
+                return;
+            }
+            if ($letter) {
+                $exists = \App\Models\Disposition::where('incoming_letter_id', $letter->id)
+                    ->where('to_unit_id', $unitId)->exists();
+                if ($exists) {
+                    app(WhatsappClient::class)->sendText($from, __('Disposisi sudah ada untuk Unit Kerja: :name', ['name' => $workUnit->name]));
+                    return;
+                }
+                $disp = \App\Models\Disposition::create([
+                    'incoming_letter_id' => $letter->id,
+                    'from_user_id'       => $letter->user_id,
+                    'from_name'          => $letter->user?->name ?? 'System',
+                    'from_phone'         => $from,
+                    'to_unit_id'         => $unitId,
+                    'to_unit_name'       => $workUnit->name,
+                    'status'             => \App\Enums\DispositionStatus::New,
+                    'channel'            => 'whatsapp',
+                    'sequence'           => ($letter->dispositions()->count() + 1),
+                ]);
+                $letter->increment('disposition_count');
+                $letter->update([
+                    'status'           => \App\Enums\IncomingLetterStatus::Disposed,
+                    'disposed_at'      => now(),
+                    'last_disposition' => $workUnit->name,
+                ]);
+            }
+            DB::table('integration_logs')->insert([
+                'service'         => 'whatsapp-webhook',
+                'endpoint'        => 'create-disposition-unit',
+                'method'          => 'SYSTEM',
+                'request_payload' => json_encode(['from' => $from, 'unit_id' => $unitId, 'letter_id' => $letterId, 'disposition_id' => $disp?->id]),
+                'response_body'   => null,
+                'status_code'     => 200,
+                'success'         => true,
+                'attempt'         => 1,
+                'message_id'      => $message['id'] ?? null,
+                'correlation_id'  => null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Unit Kerja: :name', ['name' => $workUnit->name]));
+            $session            = $from ? wa_session_get($from) ?? [] : [];
+            $session['expect']  = 'disposition_note';
+            $session['letter_id'] = $letter?->id;
+            wa_session_set($from, $session);
+
+            // Broadcast tombol AMBIL ke semua pegawai aktif di unit
+            $unitEmployees = Employee::where('work_unit_id', $workUnit->id)->where('status', 'active')->get();
+            foreach ($unitEmployees as $emp) {
+                if (! $emp->phone_number) continue;
+                $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
+                if (str_starts_with($targetPhone, '0')) {
+                    $targetPhone = '62' . substr($targetPhone, 1);
+                }
+                if ($targetPhone === $from) continue;
+                wa_session_set($targetPhone, [
+                    'letter_id'      => $letter?->id,
+                    'phase'          => 'claim_broadcast',
+                    'disposition_id' => $disp?->id,
+                ]);
+                app(WhatsappClient::class)->sendInteractiveButtons(
+                    $targetPhone,
+                    __('Surat :num menunggu penanggung jawab. Tekan AMBIL untuk mengambil.', ['num' => $letter->letter_number]),
+                    [['id' => 'claim_disposition', 'title' => 'AMBIL']]
+                );
             }
         } elseif (str_starts_with($id, 'emp:')) {
-            $empId = (int)substr($id, 4);
+            $empId    = (int) substr($id, 4);
             $employee = Employee::find($empId);
-            if ($employee) {
-                $disp = null;
-                if ($letter) {
-                    $exists = \App\Models\Disposition::where('incoming_letter_id', $letter->id)
-                        ->where('to_user_id', $employee->user_id)
-                        ->exists();
-                    if ($exists) {
-                        app(WhatsappClient::class)->sendText($from, __('Disposisi sudah ada untuk Pegawai: :name', ['name' => $employee->name]));
-                        return;
-                    }
-                    $disp = \App\Models\Disposition::create([
-                        'incoming_letter_id' => $letter->id,
-                        'from_user_id' => $letter->user_id,
-                        'from_name' => $letter->user?->name ?? 'System',
-                        'from_phone' => $from,
-                        'to_user_id' => $employee->user_id,
-                        'to_name' => $employee->name,
-                        'to_phone' => $employee->phone_number,
-                        'status' => \App\Enums\DispositionStatus::New,
-                        'channel' => 'whatsapp',
-                        'sequence' => ($letter->dispositions()->count() + 1),
-                    ]);
-                    $letter->increment('disposition_count');
-                    $letter->update([
-                        'status' => \App\Enums\IncomingLetterStatus::Disposed,
-                        'disposed_at' => now(),
-                        'last_disposition' => $employee->name,
-                    ]);
-                }
-                DB::table('integration_logs')->insert([
-                    'service' => 'whatsapp-webhook',
-                    'endpoint' => 'create-disposition-employee',
-                    'method' => 'SYSTEM',
-                    'request_payload' => json_encode(['from' => $from, 'employee_id' => $empId, 'letter_id' => $letterId, 'disposition_id' => $disp?->id]),
-                    'response_body' => null,
-                    'status_code' => 200,
-                    'success' => true,
-                    'attempt' => 1,
-                    'message_id' => $message['id'] ?? null,
-                    'correlation_id' => null,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-                app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Pegawai: :name', ['name' => $employee->name]));
-                $session = $from ? wa_session_get($from) ?? [] : [];
-                $session['expect'] = 'disposition_note';
-                $session['letter_id'] = $letter?->id;
-                wa_session_set($from, $session);
-            } else {
+            if (! $employee) {
                 app(WhatsappClient::class)->sendText($from, __('Pegawai tidak ditemukan.'));
+                return;
             }
+            $disp = null;
+            if ($letter) {
+                $exists = \App\Models\Disposition::where('incoming_letter_id', $letter->id)
+                    ->where('to_user_id', $employee->user_id)->exists();
+                if ($exists) {
+                    app(WhatsappClient::class)->sendText($from, __('Disposisi sudah ada untuk Pegawai: :name', ['name' => $employee->name]));
+                    return;
+                }
+                $disp = \App\Models\Disposition::create([
+                    'incoming_letter_id' => $letter->id,
+                    'from_user_id'       => $letter->user_id,
+                    'from_name'          => $letter->user?->name ?? 'System',
+                    'from_phone'         => $from,
+                    'to_user_id'         => $employee->user_id,
+                    'to_name'            => $employee->name,
+                    'to_phone'           => $employee->phone_number,
+                    'status'             => \App\Enums\DispositionStatus::New,
+                    'channel'            => 'whatsapp',
+                    'sequence'           => ($letter->dispositions()->count() + 1),
+                ]);
+                $letter->increment('disposition_count');
+                $letter->update([
+                    'status'           => \App\Enums\IncomingLetterStatus::Disposed,
+                    'disposed_at'      => now(),
+                    'last_disposition' => $employee->name,
+                ]);
+            }
+            DB::table('integration_logs')->insert([
+                'service'         => 'whatsapp-webhook',
+                'endpoint'        => 'create-disposition-employee',
+                'method'          => 'SYSTEM',
+                'request_payload' => json_encode(['from' => $from, 'employee_id' => $empId, 'letter_id' => $letterId, 'disposition_id' => $disp?->id]),
+                'response_body'   => null,
+                'status_code'     => 200,
+                'success'         => true,
+                'attempt'         => 1,
+                'message_id'      => $message['id'] ?? null,
+                'correlation_id'  => null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+            app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Pegawai: :name', ['name' => $employee->name]));
+            $session              = $from ? wa_session_get($from) ?? [] : [];
+            $session['expect']    = 'disposition_note';
+            $session['letter_id'] = $letter?->id;
+            if ($disp) $session['disposition_id'] = $disp->id;
+            wa_session_set($from, $session);
         }
     }
 
-    // Handle button choice for choose_unit or choose_employee
-    private function handleButtonChoice(?string $from, string $choice): void
+    // ─── Helper ──────────────────────────────────────────────────────────────
+
+    private function logRateLimit(string $from, string $endpoint, ?string $msgId, int $statusCode): void
     {
-        if (!$from) return;
-        $choice = strtolower($choice);
-        if ($choice === 'choose_unit') {
-            $units = WorkUnit::limit(10)->get();
-            if ($units->isEmpty()) {
-                app(WhatsappClient::class)->sendText($from, __('Tidak ada Unit Kerja tersedia.'));
-                return;
-            }
-            $sections = [[
-                'title' => __('Unit Kerja'),
-                'rows' => $units->map(fn($u) => [
-                    'id' => 'unit:' . $u->id,
-                    'title' => $u->name,
-                    'description' => $u->description ?? '',
-                ])->toArray(),
-            ]];
-            app(WhatsappClient::class)->sendInteractiveList($from, __('Daftar Unit Kerja'), __('Pilih unit tujuan disposisi'), __('Pilih salah satu'), $sections);
-        } elseif ($choice === 'choose_employee') {
-            $employees = Employee::where('status', 'active')->limit(10)->get();
-            if ($employees->isEmpty()) {
-                app(WhatsappClient::class)->sendText($from, __('Tidak ada Pegawai aktif tersedia.'));
-                return;
-            }
-            $sections = [[
-                'title' => __('Pegawai'),
-                'rows' => $employees->map(fn($e) => [
-                    'id' => 'emp:' . $e->id,
-                    'title' => $e->name,
-                    'description' => $e->position ?? '',
-                ])->toArray(),
-            ]];
-            app(WhatsappClient::class)->sendInteractiveList($from, __('Daftar Pegawai'), __('Pilih pegawai tujuan disposisi'), __('Pilih salah satu'), $sections);
-        }
+        DB::table('integration_logs')->insert([
+            'service'         => 'whatsapp-webhook',
+            'endpoint'        => $endpoint,
+            'method'          => 'SYSTEM',
+            'request_payload' => json_encode(['phone' => $from]),
+            'response_body'   => null,
+            'status_code'     => $statusCode,
+            'success'         => false,
+            'attempt'         => 1,
+            'message_id'      => $msgId,
+            'correlation_id'  => null,
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
     }
 }
+
+
