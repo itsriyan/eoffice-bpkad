@@ -235,5 +235,10 @@
     "Notifikasi WhatsApp dikirim ulang ke pimpinan.": "WhatsApp notification resent to leader.",
     "Tidak ada data disposisi untuk surat ini.": "No disposition data found for this letter.",
     "Tidak ada nomor tujuan yang valid untuk dikirim ulang.": "No valid destination number to resend to.",
-    "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Disposition notification resent to :target (:count recipient(s))."
+    "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Disposition notification resent to :target (:count recipient(s)).",
+
+    "Kirim Ulang WA ke :target": "Resend WA to :target",
+    "Kirim ulang notifikasi disposisi ke :target?": "Resend disposition notification to :target?",
+    "Kirim ulang notifikasi ke pimpinan?": "Resend notification to leader?",
+    "Tujuan Disposisi": "Disposition Target"
 }

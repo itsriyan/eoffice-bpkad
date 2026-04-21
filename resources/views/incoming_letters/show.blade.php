@@ -68,12 +68,30 @@
                 @endcan
             </div>
             @can('incoming_letter.view')
+                @php
+                    $isDisposed = in_array($incoming_letter->status->value, ['disposed', 'followed_up', 'completed']);
+                    $lastDisp   = $isDisposed
+                        ? $incoming_letter->dispositions()
+                            ->whereNotIn('status', ['rejected', 'completed'])
+                            ->orderByDesc('sequence')->first()
+                          ?? $incoming_letter->dispositions()->orderByDesc('sequence')->first()
+                        : null;
+                    $resendTarget = $lastDisp
+                        ? ($lastDisp->to_name ?? $lastDisp->to_unit_name ?? __('Tujuan Disposisi'))
+                        : __('Pimpinan');
+                    $resendLabel  = $isDisposed
+                        ? __('Kirim Ulang WA ke :target', ['target' => $resendTarget])
+                        : __('Kirim Ulang WA Pimpinan');
+                    $resendConfirm = $isDisposed
+                        ? __('Kirim ulang notifikasi disposisi ke :target?', ['target' => $resendTarget])
+                        : __('Kirim ulang notifikasi ke pimpinan?');
+                @endphp
                 <form action="{{ route('incoming_letters.notify_pimpinan', $incoming_letter->id) }}" method="POST"
                     class="d-inline">
                     @csrf
                     <button type="submit" class="btn btn-warning btn-sm"
-                        onclick="return confirm('{{ __('Kirim ulang notifikasi ke pimpinan?') }}')">
-                        <i class="fas fa-sync"></i> {{ __('Kirim Ulang WA Pimpinan') }}
+                        onclick="return confirm('{{ $resendConfirm }}')">
+                        <i class="fas fa-sync"></i> {{ $resendLabel }}
                     </button>
                 </form>
             @endcan

@@ -235,5 +235,10 @@
     "Notifikasi WhatsApp dikirim ulang ke pimpinan.": "Notifikasi WhatsApp dikirim ulang ke pimpinan.",
     "Tidak ada data disposisi untuk surat ini.": "Tidak ada data disposisi untuk surat ini.",
     "Tidak ada nomor tujuan yang valid untuk dikirim ulang.": "Tidak ada nomor tujuan yang valid untuk dikirim ulang.",
-    "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Notifikasi disposisi dikirim ulang ke :target (:count penerima)."
+    "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Notifikasi disposisi dikirim ulang ke :target (:count penerima).",
+
+    "Kirim Ulang WA ke :target": "Kirim Ulang WA ke :target",
+    "Kirim ulang notifikasi disposisi ke :target?": "Kirim ulang notifikasi disposisi ke :target?",
+    "Kirim ulang notifikasi ke pimpinan?": "Kirim ulang notifikasi ke pimpinan?",
+    "Tujuan Disposisi": "Tujuan Disposisi"
 }
