@@ -47,7 +47,7 @@ class SendWhatsappMessageJob implements ShouldQueue
                 'variables'        => $this->variables,
             ]),
             'response_body'    => json_encode($result['response']),
-            'status_code'      => $success ? 200 : ($result['response']['error'] ? 500 : null),
+            'status_code'      => $success ? 200 : (isset($result['response']['error']) ? 500 : null),
             'success'          => $success,
             'attempt'          => $this->attempts(),
             'message_id'       => $messageId,

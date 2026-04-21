@@ -28,20 +28,13 @@ class WhatsappClient
     }
 
     /**
-     * Kirim pesan template – dipetakan ke teks berformat + tombol interaktif Fonnte.
-     * Fonnte tidak mendukung WABA template; teks diambil dari config('e-office.whatsapp.templates').
+     * Kirim pesan template – dipetakan ke teks berformat dari config.
      */
     public function sendTemplate(string $to, string $templateName, ?string $lang = null, array $components = []): array
     {
         $variables = $this->extractVariables($components);
         $template  = config('e-office.whatsapp.templates.' . $templateName);
-
-        $text    = $this->buildTemplateText($template['text'] ?? $templateName, $variables);
-        $buttons = $template['buttons'] ?? [];
-
-        if ($buttons) {
-            return $this->sendInteractiveButtons($to, $text, $buttons);
-        }
+        $text      = $this->buildTemplateText($template['text'] ?? $templateName, $variables);
 
         return $this->sendText($to, $text);
     }
@@ -59,49 +52,64 @@ class WhatsappClient
     }
 
     /**
-     * Kirim pesan dengan tombol interaktif (maks. 3 tombol, judul maks. 20 karakter).
+     * Kirim menu bernomor (pengganti interactive buttons yang deprecated).
      *
-     * $buttons: [['id' => 'choose_unit', 'title' => 'Unit Kerja'], ...]
+     * $options: ['1' => 'Disposisi', '2' => 'Arsipkan', '3' => 'Tolak']
+     * Menghasilkan teks:
+     *   <header>
+     *   1 - Disposisi
+     *   2 - Arsipkan
+     *   3 - Tolak
+     *   Balas dengan angka pilihan Anda.
      */
-    public function sendInteractiveButtons(string $to, string $bodyText, array $buttons): array
+    public function sendMenu(string $to, string $header, array $options): array
     {
-        $titles = implode('|', array_column($buttons, 'title'));
-        $ids    = implode('|', array_column($buttons, 'id'));
+        $lines = [$header, ''];
+        foreach ($options as $num => $label) {
+            $lines[] = "*{$num}* - {$label}";
+        }
+        $lines[] = '';
+        $lines[] = 'Balas dengan angka pilihan Anda.';
 
-        return $this->dispatch([
-            'target'      => $this->normalizePhone($to),
-            'message'     => $bodyText,
-            'buttons'     => $titles,
-            'buttonId'    => $ids,
-            'countryCode' => '62',
-        ]);
+        return $this->sendText($to, implode("\n", $lines));
     }
 
     /**
-     * Kirim pesan list interaktif (Fonnte list message).
+     * Kirim daftar bernomor (pengganti interactive list yang deprecated).
      *
-     * $sections: [['title' => 'Unit Kerja', 'rows' => [['id'=>'unit:1','title'=>'Sekretariat','description'=>'']]]]
+     * $items: [['num' => 1, 'title' => 'Sekretariat', 'description' => ''], ...]
+     */
+    public function sendNumberedList(string $to, string $header, array $items): array
+    {
+        $lines = [$header, ''];
+        foreach ($items as $item) {
+            $line = "*{$item['num']}* - {$item['title']}";
+            if (! empty($item['description'])) {
+                $line .= "\n    _{$item['description']}_";
+            }
+            $lines[] = $line;
+        }
+        $lines[] = '';
+        $lines[] = 'Balas dengan angka pilihan Anda.';
+
+        return $this->sendText($to, implode("\n", $lines));
+    }
+
+    /**
+     * @deprecated Buttons sudah deprecated di Fonnte. Gunakan sendMenu().
+     */
+    public function sendInteractiveButtons(string $to, string $bodyText, array $buttons): array
+    {
+        // Fallback ke sendText biasa agar tidak error saat dipanggil kode lama
+        return $this->sendText($to, $bodyText);
+    }
+
+    /**
+     * @deprecated List sudah deprecated di Fonnte. Gunakan sendNumberedList().
      */
     public function sendInteractiveList(string $to, string $header, string $bodyText, string $footer, array $sections, string $buttonText = 'Pilih'): array
     {
-        return $this->dispatch([
-            'target'      => $this->normalizePhone($to),
-            'message'     => $bodyText,
-            'header'      => $header,
-            'footer'      => $footer,
-            'listMessage' => json_encode([
-                'buttonText' => $buttonText,
-                'sections'   => array_map(fn ($s) => [
-                    'title' => $s['title'],
-                    'rows'  => array_map(fn ($r) => [
-                        'id'          => $r['id'],
-                        'title'       => $r['title'],
-                        'description' => $r['description'] ?? '',
-                    ], $s['rows']),
-                ], $sections),
-            ]),
-            'countryCode' => '62',
-        ]);
+        return $this->sendText($to, $bodyText);
     }
 
     /**
@@ -110,7 +118,7 @@ class WhatsappClient
     public function sendDisposition(Disposition $disposition, string $template, array $variables = []): array
     {
         $components = $variables
-            ? [['type' => 'body', 'parameters' => array_map(fn ($v) => ['text' => (string) $v], $variables)]]
+            ? [['type' => 'body', 'parameters' => array_map(fn($v) => ['text' => (string) $v], $variables)]]
             : [];
 
         $result = $this->sendTemplate($disposition->to_phone, $template, null, $components);

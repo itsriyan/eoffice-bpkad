@@ -15,15 +15,10 @@ return [
             'claim_per_minute' => env('E_OFFICE_WA_RATE_CLAIM', 20),
             'note_per_minute' => env('E_OFFICE_WA_RATE_NOTE', 30),
         ],
-        // Teks template pengganti WABA template (Fonnte menggunakan WA reguler)
+        // Teks template notifikasi surat masuk (Fonnte teks biasa)
         'templates' => [
             'surat_masuk_baru' => [
-                'text' => "*Surat Masuk Baru*\n\nNo. Surat : {var0}\nPengirim  : {var1}\nPerihal   : {var2}\nTanggal   : {var3}\nLink      : {var4}\n\nSilakan pilih tindakan:",
-                'buttons' => [
-                    ['id' => 'DISPOSISI', 'title' => 'Disposisi'],
-                    ['id' => 'ARSIPKAN',  'title' => 'Arsipkan'],
-                    ['id' => 'TOLAK',     'title' => 'Tolak'],
-                ],
+                'text' => "*Surat Masuk Baru* 📩\n\nNo. Surat : {var0}\nPengirim  : {var1}\nPerihal   : {var2}\nTanggal   : {var3}\nLink      : {var4}\n\nBalas dengan angka untuk memilih tindakan:\n*1* - Disposisi\n*2* - Arsipkan\n*3* - Tolak",
             ],
         ],
     ],
