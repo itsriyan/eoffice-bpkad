@@ -728,13 +728,18 @@ class WhatsappWebhookController extends Controller
         if ($letterId) {
             wa_multi_session_remove_letter($from, $letterId);
         }
-        // Jika masih ada surat pending, tawarkan daftar
+        // Pesan penutup
         $multi = wa_multi_session_get($from);
         if (! empty($multi['letters'])) {
             $count = count($multi['letters']);
             app(WhatsappClient::class)->sendText(
                 $from,
-                "Masih ada *{$count}* surat pending. Ketik *DAFTAR* untuk lihat, atau *BANTUAN* untuk perintah lain."
+                "Masih ada *{$count}* surat pending. Ketik *DAFTAR* untuk lihat."
+            );
+        } else {
+            app(WhatsappClient::class)->sendText(
+                $from,
+                "✅ Semua surat telah ditangani. Tidak ada surat pending lainnya."
             );
         }
     }
@@ -1128,13 +1133,15 @@ class WhatsappWebhookController extends Controller
             ]);
             wa_session_forget($from);
             wa_multi_session_remove_letter($from, $letterId);
-            app(WhatsappClient::class)->sendText($from, "Disposisi *Selesai* ✅\nSurat telah ditangani.");
+            app(WhatsappClient::class)->sendText($from, "Disposisi *Selesai* ✅\nSurat *" . ($disp->letter?->letter_number ?? '-') . "* telah ditangani.");
             $multi = wa_multi_session_get($from);
             if (! empty($multi['letters'])) {
                 app(WhatsappClient::class)->sendText(
                     $from,
                     "Masih ada *" . count($multi['letters']) . "* surat lain. Ketik *DAFTAR* untuk lihat."
                 );
+            } else {
+                app(WhatsappClient::class)->sendText($from, "Tidak ada surat pending lainnya.");
             }
             return;
         }
@@ -1154,13 +1161,15 @@ class WhatsappWebhookController extends Controller
             ]);
             wa_session_forget($from);
             wa_multi_session_remove_letter($from, $letterId);
-            app(WhatsappClient::class)->sendText($from, "Disposisi *Selesai* ✅\nSurat telah ditangani.");
+            app(WhatsappClient::class)->sendText($from, "Disposisi *Selesai* ✅\nSurat *" . ($disp->letter?->letter_number ?? '-') . "* telah ditangani.");
             $multi = wa_multi_session_get($from);
             if (! empty($multi['letters'])) {
                 app(WhatsappClient::class)->sendText(
                     $from,
                     "Masih ada *" . count($multi['letters']) . "* surat lain. Ketik *DAFTAR* untuk lihat."
                 );
+            } else {
+                app(WhatsappClient::class)->sendText($from, "Tidak ada surat pending lainnya.");
             }
             return;
         }
