@@ -113,6 +113,19 @@ class WhatsappWebhookController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
+            // ── NEXT / PREV command (navigasi halaman DAFTAR) ─────────────────
+            if (preg_match('/^(NEXT|LANJUT)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
+                $page = ($session['daftar_page'] ?? 1) + 1;
+                $this->handleDaftar($from, $session, $multi, $page);
+                return response()->json(['status' => 'ok']);
+            }
+
+            if (preg_match('/^(PREV|KEMBALI)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
+                $page = max(1, ($session['daftar_page'] ?? 1) - 1);
+                $this->handleDaftar($from, $session, $multi, $page);
+                return response()->json(['status' => 'ok']);
+            }
+
             // ── BATAL command ─────────────────────────────────────────────────
             if (preg_match('/^BATAL$/i', $msgText)) {
                 $this->handleBatal($from, $session);
@@ -291,41 +304,64 @@ class WhatsappWebhookController extends Controller
      * DAFTAR – tampilkan semua surat pending sebagai daftar bernomor.
      * Jika tidak ada surat pending, beri tahu user.
      */
-    private function handleDaftar(string $from, ?array $session, ?array $multi): void
+    private function handleDaftar(string $from, ?array $session, ?array $multi, int $page = 1): void
     {
         if (empty($multi['letters'])) {
             app(WhatsappClient::class)->sendText($from, __('Tidak ada surat pending saat ini.'));
             return;
         }
 
-        $letters  = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])->get()->keyBy('id');
-        $activeId = $multi['active_letter_id'];
-        $items    = [];
-        $listMap  = [];
-        $i        = 1;
-        foreach ($multi['letters'] as $lid) {
-            $l = $letters[$lid] ?? null;
-            if (! $l) continue;
+        // Ambil data surat, urutkan dari terlama ke terbaru berdasarkan received_date
+        $letters = \App\Models\IncomingLetter::whereIn('id', $multi['letters'])
+            ->orderBy('received_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $activeId  = $multi['active_letter_id'];
+        $perPage   = 5;
+        $total     = $letters->count();
+        $totalPages = (int) ceil($total / $perPage);
+        $page      = max(1, min($page, $totalPages));
+        $offset    = ($page - 1) * $perPage;
+        $paginated = $letters->slice($offset, $perPage)->values();
+
+        $items   = [];
+        $listMap = [];
+        foreach ($paginated as $idx => $l) {
+            $num         = $offset + $idx + 1; // nomor global (1-based)
             $marker      = $l->id === $activeId ? ' ✓' : '';
             $items[]     = [
-                'num'         => $i,
+                'num'         => $num,
                 'title'       => $l->letter_number . $marker,
-                'description' => 'Dari: ' . $l->sender . ' | ' . ($l->status->value ?? '-'),
+                'description' => 'Dari: ' . $l->sender . ' | ' . ($l->received_date?->toDateString() ?? '-'),
                 'id'          => $l->id,
             ];
-            $listMap[$i] = $l->id;
-            $i++;
+            $listMap[$num] = $l->id;
         }
 
+        // Simpan full list_items (semua halaman) agar user bisa pilih nomor global
+        $existingMap = ($session['list_items'] ?? []);
+        // Merge peta halaman ini ke peta yang ada
+        $fullMap = array_replace($existingMap, $listMap);
+
         wa_session_set($from, [
-            'phase'      => 'select_letter',
-            'list_items' => $listMap,
-            'ts'         => now()->timestamp,
+            'phase'       => 'select_letter',
+            'list_items'  => $fullMap,
+            'daftar_page' => $page,
+            'ts'          => now()->timestamp,
         ]);
+
+        $nav = '';
+        if ($totalPages > 1) {
+            $parts = [];
+            if ($page < $totalPages) $parts[] = '*NEXT* untuk halaman berikutnya';
+            if ($page > 1)           $parts[] = '*PREV* untuk halaman sebelumnya';
+            $nav = '\n' . implode(' | ', $parts);
+        }
 
         app(WhatsappClient::class)->sendNumberedList(
             $from,
-            "*Daftar Surat Pending* (" . count($items) . ")\nPilih angka untuk mulai tindakan, atau ketik *BATAL* untuk keluar:",
+            "*Daftar Surat Pending* (hal. {$page}/{$totalPages}, total {$total})\nPilih angka untuk mulai tindakan.{$nav}\nKetik *BATAL* untuk keluar:",
             $items
         );
     }
