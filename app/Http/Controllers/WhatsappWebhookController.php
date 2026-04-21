@@ -258,7 +258,7 @@ class WhatsappWebhookController extends Controller
             }
 
             // ── Menu angka – tindakan pegawai (awaiting_staff_action) ────────
-            if (preg_match('/^\s*([1-2])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_staff_action') {
+            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_staff_action') {
                 $this->handleStaffAction($from, (int) $m[1], $session);
                 return response()->json(['status' => 'ok']);
             }
@@ -1012,9 +1012,9 @@ class WhatsappWebhookController extends Controller
         if (in_array($status, [\App\Enums\DispositionStatus::New, \App\Enums\DispositionStatus::Sent], true)) {
             $menu = "Pilih tindakan:\n*1* - Ambil Disposisi";
         } elseif ($status === \App\Enums\DispositionStatus::Received) {
-            $menu = "Pilih tindakan:\n*1* - Tindak Lanjuti\n*2* - Selesai";
+            $menu = "Pilih tindakan:\n*1* - Tindak Lanjuti\n*2* - Disposisi Ulang\n*3* - Selesai";
         } elseif ($status === \App\Enums\DispositionStatus::FollowedUp) {
-            $menu = "Pilih tindakan:\n*1* - Selesai";
+            $menu = "Pilih tindakan:\n*1* - Disposisi Ulang\n*2* - Selesai";
         } else {
             $menu = "Tidak ada tindakan tersedia untuk status ini.";
         }
@@ -1066,14 +1066,22 @@ class WhatsappWebhookController extends Controller
                 $disp->refresh();
                 $claimer = $disp->claimedByUser?->name ?? '-';
                 app(WhatsappClient::class)->sendText($from, "Disposisi sudah diambil oleh *{$claimer}*.");
+                wa_session_forget($from);
             } else {
-                app(WhatsappClient::class)->sendText(
-                    $from,
-                    "Disposisi berhasil diambil ✅\n\nKetik *DAFTAR* kapan saja untuk menandai tindak lanjut atau selesai."
-                );
+                // Langsung tampilkan menu aksi berikutnya (Tindak Lanjuti / Selesai)
+                $disp->refresh();
+                $letter = \App\Models\IncomingLetter::find($letterId);
+                app(WhatsappClient::class)->sendText($from, "Disposisi berhasil diambil ✅");
+                wa_session_set($from, [
+                    'letter_id'      => $letterId,
+                    'phase'          => 'awaiting_staff_action',
+                    'disposition_id' => $disp->id,
+                    'ts'             => now()->timestamp,
+                ]);
+                if ($letter) {
+                    $this->sendStaffActionMenu($from, $letter, $disp);
+                }
             }
-            wa_session_forget($from);
-            // Surat tetap di multi-session agar bisa lanjut ke tindak lanjut / selesai
             return;
         }
 
@@ -1090,17 +1098,29 @@ class WhatsappWebhookController extends Controller
             ], true)) {
                 $letter->update(['status' => \App\Enums\IncomingLetterStatus::FollowedUp]);
             }
-            wa_session_forget($from);
-            // Surat tetap di multi-session untuk aksi selesai berikutnya
-            app(WhatsappClient::class)->sendText(
-                $from,
-                "Disposisi ditandai *Tindak Lanjuti* ✅\n\nKetik *DAFTAR* kapan saja untuk menandai selesai."
-            );
+            // Langsung tampilkan menu berikutnya (Disposisi Ulang / Selesai)
+            $disp->refresh();
+            wa_session_set($from, [
+                'letter_id'      => $letterId,
+                'phase'          => 'awaiting_staff_action',
+                'disposition_id' => $disp->id,
+                'ts'             => now()->timestamp,
+            ]);
+            app(WhatsappClient::class)->sendText($from, "Surat ditandai *Tindak Lanjuti* ✅");
+            if ($letter) {
+                $this->sendStaffActionMenu($from, $letter, $disp);
+            }
+            return;
+        }
+
+        // ── Disposisi Ulang (dari Received) ──────────────────────────────────
+        if ($status === \App\Enums\DispositionStatus::Received && $choice === 2) {
+            $this->startRedispose($from, $disp);
             return;
         }
 
         // ── Selesai (langsung dari Received) ─────────────────────────────────
-        if ($status === \App\Enums\DispositionStatus::Received && $choice === 2) {
+        if ($status === \App\Enums\DispositionStatus::Received && $choice === 3) {
             $disp->update(['status' => \App\Enums\DispositionStatus::Completed, 'completed_at' => now()]);
             $disp->letter?->update([
                 'status'       => \App\Enums\IncomingLetterStatus::Completed,
@@ -1119,8 +1139,14 @@ class WhatsappWebhookController extends Controller
             return;
         }
 
-        // ── Selesai (dari FollowedUp) ─────────────────────────────────────────
+        // ── Disposisi Ulang (dari FollowedUp) ─────────────────────────────────
         if ($status === \App\Enums\DispositionStatus::FollowedUp && $choice === 1) {
+            $this->startRedispose($from, $disp);
+            return;
+        }
+
+        // ── Selesai (dari FollowedUp) ─────────────────────────────────────────
+        if ($status === \App\Enums\DispositionStatus::FollowedUp && $choice === 2) {
             $disp->update(['status' => \App\Enums\DispositionStatus::Completed, 'completed_at' => now()]);
             $disp->letter?->update([
                 'status'       => \App\Enums\IncomingLetterStatus::Completed,
@@ -1140,6 +1166,25 @@ class WhatsappWebhookController extends Controller
         }
 
         app(WhatsappClient::class)->sendText($from, __('Pilihan tidak valid untuk status disposisi saat ini.'));
+    }
+
+    /**
+     * Mulai alur disposisi ulang dari pegawai ke unit/pegawai lain.
+     * Reuse alur pimpinan (choose_disposition_type → unit/employee → note → broadcast).
+     */
+    private function startRedispose(string $from, \App\Models\Disposition $disp): void
+    {
+        wa_session_set($from, [
+            'letter_id'          => $disp->incoming_letter_id,
+            'phase'              => 'choose_disposition_type',
+            'source_disposition' => $disp->id,
+            'ts'                 => now()->timestamp,
+        ]);
+
+        app(WhatsappClient::class)->sendMenu($from, __('Pilih tujuan disposisi ulang:'), [
+            '1' => __('Unit Kerja'),
+            '2' => __('Pegawai'),
+        ]);
     }
 
     // ─── Helper ──────────────────────────────────────────────────────────────

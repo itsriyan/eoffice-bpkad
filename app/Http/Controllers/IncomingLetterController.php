@@ -123,16 +123,31 @@ class IncomingLetterController extends Controller
 
                 // Multi-letter tracking – tambah ke daftar pending pimpinan
                 wa_multi_session_add_letter($pimpinanPhone, $letter->id);
+                $multi       = wa_multi_session_get($pimpinanPhone);
+                $pendingCount = count($multi['letters'] ?? []);
 
-                // Kirim notifikasi surat baru saja – JANGAN set session/action menu di sini.
-                // Pimpinan harus ketik DAFTAR untuk melihat daftar surat dan memulai tindakan.
-                \App\Jobs\SendWhatsappMessageJob::dispatch(
-                    to: $pimpinanPhone,
-                    mode: 'template',
-                    templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
-                    variables: $variables,
-                    correlationId: 'letter-create-' . $letter->id
-                );
+                // Cek apakah pimpinan sedang mid-flow
+                $isMidFlow = wa_session_is_mid_flow(wa_session_get($pimpinanPhone));
+
+                if ($isMidFlow) {
+                    // Jangan timpa session – kirim notif singkat saja
+                    \App\Jobs\SendWhatsappMessageJob::dispatch(
+                        to: $pimpinanPhone,
+                        mode: 'text',
+                        templateOrText: "📩 *Surat Masuk Baru*\n\nNo. Surat : {$letter->letter_number}\nPengirim  : {$letter->sender}\nPerihal   : {$letter->subject}\n\nTotal pending: *{$pendingCount} surat*. Selesaikan alur saat ini, lalu ketik *DAFTAR* untuk berpindah.",
+                        variables: [],
+                        correlationId: 'letter-notify-mid-flow-' . $letter->id
+                    );
+                } else {
+                    // Idle – kirim template normal
+                    \App\Jobs\SendWhatsappMessageJob::dispatch(
+                        to: $pimpinanPhone,
+                        mode: 'template',
+                        templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
+                        variables: $variables,
+                        correlationId: 'letter-create-' . $letter->id
+                    );
+                }
             }
         } catch (\Throwable $e) {
             // Non-blocking: log and continue
