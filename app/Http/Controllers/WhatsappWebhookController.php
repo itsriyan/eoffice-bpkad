@@ -162,27 +162,8 @@ class WhatsappWebhookController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
-            // ── Menu angka – tindakan surat ──────────────────────────────────
-            // Pimpinan membalas angka dari menu notifikasi surat masuk
-            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m)) {
-                $letterId = $session['letter_id'] ?? ($multi['active_letter_id'] ?? null);
-                if ($letterId) {
-                    switch ($m[1]) {
-                        case '1':
-                            $this->handleDisposisi($from, ['id' => $msgId]);
-                            break;
-                        case '2':
-                            $this->requestArchiveNote($from, ['id' => $msgId]);
-                            break;
-                        case '3':
-                            $this->requestRejectNote($from, ['id' => $msgId]);
-                            break;
-                    }
-                    return response()->json(['status' => 'ok']);
-                }
-            }
-
             // ── Menu angka – pilih tipe disposisi ────────────────────────────
+            // Harus dicek SEBELUM menu tindakan surat agar "1"/"2" tidak disalahartikan
             if (preg_match('/^\s*([1-2])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'choose_disposition_type') {
                 $choice = $m[1] === '1' ? 'choose_unit' : 'choose_employee';
                 $this->handleButtonChoice($from, $choice);
@@ -206,6 +187,26 @@ class WhatsappWebhookController extends Controller
                 wa_rate_limit_hit($from, 'claim');
                 $this->handleClaimDisposition($from, ['id' => $msgId]);
                 return response()->json(['status' => 'ok']);
+            }
+
+            // ── Menu angka – tindakan surat ──────────────────────────────────
+            // Pimpinan membalas angka dari menu notifikasi surat masuk
+            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m)) {
+                $letterId = $session['letter_id'] ?? ($multi['active_letter_id'] ?? null);
+                if ($letterId) {
+                    switch ($m[1]) {
+                        case '1':
+                            $this->handleDisposisi($from, ['id' => $msgId]);
+                            break;
+                        case '2':
+                            $this->requestArchiveNote($from, ['id' => $msgId]);
+                            break;
+                        case '3':
+                            $this->requestRejectNote($from, ['id' => $msgId]);
+                            break;
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
             }
         }
 
@@ -558,8 +559,9 @@ class WhatsappWebhookController extends Controller
             ]);
             app(WhatsappClient::class)->sendText($from, __('Disposisi tercatat ke Unit Kerja: :name', ['name' => $workUnit->name]));
             $session            = $from ? wa_session_get($from) ?? [] : [];
-            $session['expect']  = 'disposition_note';
-            $session['letter_id'] = $letter?->id;
+            $session['expect']         = 'disposition_note';
+            $session['letter_id']      = $letter?->id;
+            $session['disposition_id'] = $disp?->id;
             wa_session_set($from, $session);
 
             // Broadcast tombol AMBIL ke semua pegawai aktif di unit
