@@ -12,18 +12,20 @@ use App\Models\Employee;
 /**
  * Webhook handler untuk Fonnte (https://fonnte.com).
  *
- * Format payload Fonnte (POST):
+ * Format payload Fonnte (POST) – FLAT, tidak ada wrapper:
  * {
- *   "data": {
- *     "message" : "teks pesan / judul tombol / judul baris list",
- *     "sender"  : "628xxx@s.whatsapp.net",
- *     "name"    : "Nama Pengirim",
- *     "device"  : "628xxx",
- *     "id"      : "<id_pesan | id_tombol | id_baris>",
- *     "type"    : "text | button | list | image | ...",
- *     "url"     : ""
- *   },
- *   "token": "<device_token>"
+ *   "device"   : "628xxx",
+ *   "sender"   : "628xxx",
+ *   "message"  : "teks pesan",
+ *   "text"     : "teks tombol (deprecated)",
+ *   "name"     : "Nama Pengirim",
+ *   "member"   : "",
+ *   "location" : "",
+ *   "inboxid"  : "<id_pesan>",
+ *   "timestamp": 1713687626,
+ *   "url"      : "",
+ *   "filename" : "",
+ *   "extension": ""
  * }
  */
 class WhatsappWebhookController extends Controller
@@ -39,21 +41,39 @@ class WhatsappWebhookController extends Controller
 
     /**
      * POST – terima pesan masuk dari Fonnte.
+     *
+     * Payload Fonnte FLAT (tidak ada wrapper "data"):
+     *   device   = nomor device
+     *   sender   = nomor pengirim (628xxx, tanpa @s.whatsapp.net)
+     *   message  = isi pesan teks
+     *   text     = teks tombol yang diklik (hanya untuk balasan tombol)
+     *   name     = nama pengirim
+     *   inboxid  = id pesan masuk
+     *   member   = anggota grup yang kirim (jika dari grup)
      */
     public function handle(Request $request)
     {
         $payload = $request->all();
-        $data    = $payload['data'] ?? null;
 
-        // Guard dulu sebelum akses field apapun dari $data
-        if (! is_array($data)) {
-            Log::channel('whatsapp')->info('Incoming Fonnte webhook – no data payload');
+        // Fonnte kirim payload flat – tidak ada wrapper 'data'
+        // Minimal harus ada field 'sender' agar bisa diproses
+        $sender = $payload['sender'] ?? null;
+        if (! $sender) {
+            Log::channel('whatsapp')->info('Incoming Fonnte webhook – no sender field', ['payload_keys' => array_keys($payload)]);
             return response()->json(['status' => 'ok']);
         }
 
+        // Fonnte tidak mengirim field 'type'.
+        // Field 'text' berisi teks tombol jika balasan tombol (fitur deprecated).
+        // Kita gabungkan: utamakan 'message', fallback ke 'text' (tombol deprecated).
+        $msgText = trim($payload['message'] ?? '') ?: trim($payload['text'] ?? '');
+        $type    = 'text'; // Fonnte selalu dianggap teks; kita handle sendiri
+        $msgId   = $payload['inboxid'] ?? null;
+
         Log::channel('whatsapp')->info('Incoming Fonnte webhook', [
-            'type'   => $data['type'] ?? 'unknown',
-            'sender' => $data['sender'] ?? null,
+            'sender' => $sender,
+            'msg'    => $msgText,
+            'inboxid' => $msgId,
         ]);
 
         // Simpan raw webhook untuk audit
@@ -66,18 +86,17 @@ class WhatsappWebhookController extends Controller
             'status_code'      => 200,
             'success'          => true,
             'attempt'          => 1,
-            'message_id'       => $data['id'] ?? null,
+            'message_id'       => $msgId,
             'correlation_id'   => null,
             'created_at'       => now(),
             'updated_at'       => now(),
         ]);
 
-        // Ekstrak info pesan dari format Fonnte
-        // sender bisa berformat "628xxx@s.whatsapp.net" – ambil hanya angkanya
-        $from    = preg_replace('/@.*/', '', $data['sender'] ?? '');
-        $type    = $data['type'] ?? 'text';
-        $msgText = $data['message'] ?? '';
-        $msgId   = $data['id'] ?? null;
+        // Normalisasi nomor pengirim ke format 62xxx
+        $from = preg_replace('/[^0-9]/', '', $sender);
+        if (str_starts_with($from, '0')) {
+            $from = '62' . substr($from, 1);
+        }
 
         if (! $from) {
             return response()->json(['status' => 'ok']);
@@ -89,7 +108,7 @@ class WhatsappWebhookController extends Controller
         // ── Pesan teks ───────────────────────────────────────────────────────
         if ($type === 'text') {
             // BANTUAN command
-            if (preg_match('/^BANTUAN$/i', trim($msgText))) {
+            if (preg_match('/^BANTUAN$/i', $msgText)) {
                 $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
                 if (wa_rate_limit_exceeded($from, 'help', $limit)) {
                     app(WhatsappClient::class)->sendText($from, __('Terlalu sering meminta bantuan. Coba lagi sebentar.'));
