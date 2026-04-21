@@ -255,11 +255,22 @@ class IncomingLetterController extends Controller
         // Allow roles that can view letters (view permission sufficient) or dispose (pimpinan)
         if (!user()->can('incoming_letter.view')) abort(403);
         try {
+            // Jika surat sudah didisposisi, kirim ulang ke tujuan disposisi (bukan pimpinan)
+            $isDisposed = in_array($incoming_letter->status, [
+                \App\Enums\IncomingLetterStatus::Disposed,
+                \App\Enums\IncomingLetterStatus::FollowedUp,
+                \App\Enums\IncomingLetterStatus::Completed,
+            ]);
+
+            if ($isDisposed) {
+                return $this->resendToDispositionTarget($incoming_letter);
+            }
+
+            // Status new/rejected – kirim ulang ke pimpinan
             $pimpinanPhone = $this->resolvePimpinanPhone();
             if (!$pimpinanPhone) {
                 return back()->with('error', __('Nomor pimpinan tidak ditemukan.'));
             }
-            // Variables same as creation template
             $variables = [
                 $incoming_letter->letter_number,
                 $incoming_letter->sender,
@@ -285,7 +296,7 @@ class IncomingLetterController extends Controller
                 variables: $variables,
                 correlationId: 'letter-notify-manual-' . $incoming_letter->id
             );
-            return back()->with('success', __('Notifikasi WhatsApp dikirim ulang.'));
+            return back()->with('success', __('Notifikasi WhatsApp dikirim ulang ke pimpinan.'));
         } catch (\Throwable $e) {
             Log::channel('whatsapp')->error('Failed manual WA notify', [
                 'incoming_letter_id' => $incoming_letter->id,
@@ -293,6 +304,97 @@ class IncomingLetterController extends Controller
             ]);
             return back()->with('error', __('Gagal kirim ulang: :msg', ['msg' => $e->getMessage()]));
         }
+    }
+
+    /**
+     * Kirim ulang notifikasi disposisi ke tujuan (pegawai/unit) berdasarkan disposisi terakhir.
+     */
+    private function resendToDispositionTarget(IncomingLetter $letter): \Illuminate\Http\RedirectResponse
+    {
+        // Ambil disposisi aktif terakhir (bukan rejected/completed)
+        $disp = $letter->dispositions()
+            ->whereNotIn('status', [
+                \App\Enums\DispositionStatus::Rejected->value,
+                \App\Enums\DispositionStatus::Completed->value,
+            ])
+            ->orderByDesc('sequence')
+            ->first();
+
+        if (! $disp) {
+            // Fallback: disposisi terbaru apapun statusnya
+            $disp = $letter->dispositions()->orderByDesc('sequence')->first();
+        }
+
+        if (! $disp) {
+            return back()->with('error', __('Tidak ada data disposisi untuk surat ini.'));
+        }
+
+        $note        = $disp->instruction ?? '-';
+        $letterNum   = $letter->letter_number;
+        $sent        = 0;
+
+        if ($disp->to_phone) {
+            // Tujuan: pegawai individual
+            $targetPhone = preg_replace('/[^0-9]/', '', $disp->to_phone);
+            if (str_starts_with($targetPhone, '0')) {
+                $targetPhone = '62' . substr($targetPhone, 1);
+            }
+            if ($targetPhone) {
+                wa_session_set($targetPhone, [
+                    'letter_id'      => $letter->id,
+                    'phase'          => 'claim_broadcast',
+                    'disposition_id' => $disp->id,
+                ]);
+                \App\Jobs\SendWhatsappMessageJob::dispatch(
+                    to: $targetPhone,
+                    mode: 'text',
+                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk*\n\nSurat *{$letterNum}* didisposisikan kepada Anda.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil.",
+                    variables: [],
+                    correlationId: 'resend-disp-emp-' . $disp->id
+                );
+                $sent++;
+            }
+        } elseif ($disp->to_unit_id) {
+            // Tujuan: unit kerja – broadcast ke semua pegawai aktif di unit
+            $unitEmployees = \App\Models\Employee::where('work_unit_id', $disp->to_unit_id)
+                ->where('status', 'active')
+                ->get();
+
+            $pimpinanPhone = $this->resolvePimpinanPhone() ?? '';
+
+            foreach ($unitEmployees as $emp) {
+                if (! $emp->phone_number) continue;
+                $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
+                if (str_starts_with($targetPhone, '0')) {
+                    $targetPhone = '62' . substr($targetPhone, 1);
+                }
+                if (! $targetPhone) continue;
+                // Set session agar pegawai bisa klaim
+                wa_session_set($targetPhone, [
+                    'letter_id'      => $letter->id,
+                    'phase'          => 'claim_broadcast',
+                    'disposition_id' => $disp->id,
+                ]);
+                \App\Jobs\SendWhatsappMessageJob::dispatch(
+                    to: $targetPhone,
+                    mode: 'text',
+                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk*\n\nSurat *{$letterNum}* menunggu penanggung jawab di unit *{$disp->to_unit_name}*.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil disposisi ini.",
+                    variables: [],
+                    correlationId: 'resend-disp-unit-' . $disp->id . '-emp-' . $emp->id
+                );
+                $sent++;
+            }
+        }
+
+        if ($sent === 0) {
+            return back()->with('error', __('Tidak ada nomor tujuan yang valid untuk dikirim ulang.'));
+        }
+
+        $target = $disp->to_name ?? $disp->to_unit_name ?? '-';
+        return back()->with('success', __('Notifikasi disposisi dikirim ulang ke :target (:count penerima).', [
+            'target' => $target,
+            'count'  => $sent,
+        ]));
     }
 
     private function buildActions(IncomingLetter $l): string

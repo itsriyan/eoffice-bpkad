@@ -230,5 +230,10 @@
     "Sesi sebelumnya sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.": "Previous session expired. Type *DAFTAR* to start.",
     "Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.": "Session expired. Type *DAFTAR* to start.",
     "Tidak ada surat lain yang pending.": "No other pending letters.",
-    "Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.": "Reply with the letter number, or type *BATAL* to cancel."
+    "Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.": "Reply with the letter number, or type *BATAL* to cancel.",
+
+    "Notifikasi WhatsApp dikirim ulang ke pimpinan.": "WhatsApp notification resent to leader.",
+    "Tidak ada data disposisi untuk surat ini.": "No disposition data found for this letter.",
+    "Tidak ada nomor tujuan yang valid untuk dikirim ulang.": "No valid destination number to resend to.",
+    "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Disposition notification resent to :target (:count recipient(s))."
 }
