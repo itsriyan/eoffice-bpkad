@@ -16,9 +16,10 @@ return [
             'note_per_minute' => env('E_OFFICE_WA_RATE_NOTE', 30),
         ],
         // Teks template notifikasi surat masuk (Fonnte teks biasa)
+        // TIDAK mengandung menu tindakan – pimpinan harus ketik DAFTAR untuk mulai.
         'templates' => [
             'surat_masuk_baru' => [
-                'text' => "*Surat Masuk Baru* 📩\n\nNo. Surat : {var0}\nPengirim  : {var1}\nPerihal   : {var2}\nTanggal   : {var3}\nLink      : {var4}\n\nBalas dengan angka untuk memilih tindakan:\n*1* - Disposisi\n*2* - Arsipkan\n*3* - Tolak",
+                'text' => "*Surat Masuk Baru* 📩\n\nNo. Surat : {var0}\nPengirim  : {var1}\nPerihal   : {var2}\nTanggal   : {var3}\nLink      : {var4}\n\nKetik *DAFTAR* untuk melihat semua surat pending dan memilih tindakan.",
             ],
         ],
     ],

@@ -231,12 +231,10 @@
     "Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.": "Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.",
     "Tidak ada surat lain yang pending.": "Tidak ada surat lain yang pending.",
     "Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.": "Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.",
-
     "Notifikasi WhatsApp dikirim ulang ke pimpinan.": "Notifikasi WhatsApp dikirim ulang ke pimpinan.",
     "Tidak ada data disposisi untuk surat ini.": "Tidak ada data disposisi untuk surat ini.",
     "Tidak ada nomor tujuan yang valid untuk dikirim ulang.": "Tidak ada nomor tujuan yang valid untuk dikirim ulang.",
     "Notifikasi disposisi dikirim ulang ke :target (:count penerima).": "Notifikasi disposisi dikirim ulang ke :target (:count penerima).",
-
     "Kirim Ulang WA ke :target": "Kirim Ulang WA ke :target",
     "Kirim ulang notifikasi disposisi ke :target?": "Kirim ulang notifikasi disposisi ke :target?",
     "Kirim ulang notifikasi ke pimpinan?": "Kirim ulang notifikasi ke pimpinan?",

@@ -70,16 +70,17 @@
             @can('incoming_letter.view')
                 @php
                     $isDisposed = in_array($incoming_letter->status->value, ['disposed', 'followed_up', 'completed']);
-                    $lastDisp   = $isDisposed
-                        ? $incoming_letter->dispositions()
-                            ->whereNotIn('status', ['rejected', 'completed'])
-                            ->orderByDesc('sequence')->first()
-                          ?? $incoming_letter->dispositions()->orderByDesc('sequence')->first()
+                    $lastDisp = $isDisposed
+                        ? $incoming_letter
+                                ->dispositions()
+                                ->whereNotIn('status', ['rejected', 'completed'])
+                                ->orderByDesc('sequence')
+                                ->first() ?? $incoming_letter->dispositions()->orderByDesc('sequence')->first()
                         : null;
                     $resendTarget = $lastDisp
-                        ? ($lastDisp->to_name ?? $lastDisp->to_unit_name ?? __('Tujuan Disposisi'))
+                        ? $lastDisp->to_name ?? ($lastDisp->to_unit_name ?? __('Tujuan Disposisi'))
                         : __('Pimpinan');
-                    $resendLabel  = $isDisposed
+                    $resendLabel = $isDisposed
                         ? __('Kirim Ulang WA ke :target', ['target' => $resendTarget])
                         : __('Kirim Ulang WA Pimpinan');
                     $resendConfirm = $isDisposed
@@ -89,8 +90,7 @@
                 <form action="{{ route('incoming_letters.notify_pimpinan', $incoming_letter->id) }}" method="POST"
                     class="d-inline">
                     @csrf
-                    <button type="submit" class="btn btn-warning btn-sm"
-                        onclick="return confirm('{{ $resendConfirm }}')">
+                    <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('{{ $resendConfirm }}')">
                         <i class="fas fa-sync"></i> {{ $resendLabel }}
                     </button>
                 </form>

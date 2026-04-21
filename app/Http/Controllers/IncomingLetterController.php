@@ -121,47 +121,18 @@ class IncomingLetterController extends Controller
                     route('incoming_letters.show', $letter->id), // inline document link as body placeholder
                 ];
 
-                // Multi-letter tracking – tambah dulu sebelum cek session
+                // Multi-letter tracking – tambah ke daftar pending pimpinan
                 wa_multi_session_add_letter($pimpinanPhone, $letter->id);
-                $multi          = wa_multi_session_get($pimpinanPhone);
-                $existingSession = wa_session_get($pimpinanPhone);
-                $isMidFlow      = wa_session_is_mid_flow($existingSession);
 
-                if ($isMidFlow) {
-                    // Jangan timpa session yang sedang berjalan – kirim notif singkat saja
-                    $count = count($multi['letters'] ?? []);
-                    \App\Jobs\SendWhatsappMessageJob::dispatch(
-                        to: $pimpinanPhone,
-                        mode: 'text',
-                        templateOrText: "📩 *Surat baru masuk:* {$letter->letter_number}\nDari: {$letter->sender}\nPerihal: {$letter->subject}\n\nTotal pending: {$count} surat. Selesaikan alur saat ini, atau ketik *GANTI* untuk pindah surat.",
-                        variables: [],
-                        correlationId: 'letter-notify-mid-flow-' . $letter->id
-                    );
-                } else {
-                    // Idle – set session normal dan kirim template
-                    wa_session_set($pimpinanPhone, [
-                        'letter_id' => $letter->id,
-                        'phase'     => 'awaiting_action',
-                        'ts'        => now()->timestamp,
-                    ]);
-                    wa_multi_session_set_active($pimpinanPhone, $letter->id);
-                    if ($multi && count($multi['letters']) > 1) {
-                        \App\Jobs\SendWhatsappMessageJob::dispatch(
-                            to: $pimpinanPhone,
-                            mode: 'text',
-                            templateOrText: "📋 Total {$letter->letter_number} adalah surat ke-" . count($multi['letters']) . " yang pending. Ketik *DAFTAR* untuk lihat semua.",
-                            variables: [],
-                            correlationId: 'multi-letter-hint-' . $letter->id
-                        );
-                    }
-                    \App\Jobs\SendWhatsappMessageJob::dispatch(
-                        to: $pimpinanPhone,
-                        mode: 'template',
-                        templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
-                        variables: $variables,
-                        correlationId: 'letter-create-' . $letter->id
-                    );
-                }
+                // Kirim notifikasi surat baru saja – JANGAN set session/action menu di sini.
+                // Pimpinan harus ketik DAFTAR untuk melihat daftar surat dan memulai tindakan.
+                \App\Jobs\SendWhatsappMessageJob::dispatch(
+                    to: $pimpinanPhone,
+                    mode: 'template',
+                    templateOrText: config('e-office.whatsapp.default_template', 'surat_masuk_baru'),
+                    variables: $variables,
+                    correlationId: 'letter-create-' . $letter->id
+                );
             }
         } catch (\Throwable $e) {
             // Non-blocking: log and continue
@@ -278,17 +249,8 @@ class IncomingLetterController extends Controller
                 $incoming_letter->received_date?->translatedFormat('d M Y') ?? $incoming_letter->received_date?->toDateString(),
                 route('incoming_letters.show', $incoming_letter->id),
             ];
-            // Refresh WA session – jangan timpa jika sedang mid-flow
+            // Tambahkan ke daftar pending; JANGAN set session – user mulai dari DAFTAR
             wa_multi_session_add_letter($pimpinanPhone, $incoming_letter->id);
-            $existingSession = wa_session_get($pimpinanPhone);
-            if (! wa_session_is_mid_flow($existingSession)) {
-                wa_session_set($pimpinanPhone, [
-                    'letter_id' => $incoming_letter->id,
-                    'phase'     => 'awaiting_action',
-                    'ts'        => now()->timestamp,
-                ]);
-                wa_multi_session_set_active($pimpinanPhone, $incoming_letter->id);
-            }
             \App\Jobs\SendWhatsappMessageJob::dispatch(
                 to: $pimpinanPhone,
                 mode: 'template',
@@ -340,15 +302,11 @@ class IncomingLetterController extends Controller
                 $targetPhone = '62' . substr($targetPhone, 1);
             }
             if ($targetPhone) {
-                wa_session_set($targetPhone, [
-                    'letter_id'      => $letter->id,
-                    'phase'          => 'claim_broadcast',
-                    'disposition_id' => $disp->id,
-                ]);
+                wa_multi_session_add_letter($targetPhone, $letter->id);
                 \App\Jobs\SendWhatsappMessageJob::dispatch(
                     to: $targetPhone,
                     mode: 'text',
-                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk*\n\nSurat *{$letterNum}* didisposisikan kepada Anda.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil.",
+                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk* 📨\n\nSurat *{$letterNum}* dari {$letter->sender} didisposisikan kepada Anda.\n\n*Instruksi:* {$note}\n\nKetik *DAFTAR* untuk melihat disposisi Anda dan memilih tindakan.",
                     variables: [],
                     correlationId: 'resend-disp-emp-' . $disp->id
                 );
@@ -360,8 +318,6 @@ class IncomingLetterController extends Controller
                 ->where('status', 'active')
                 ->get();
 
-            $pimpinanPhone = $this->resolvePimpinanPhone() ?? '';
-
             foreach ($unitEmployees as $emp) {
                 if (! $emp->phone_number) continue;
                 $targetPhone = preg_replace('/[^0-9]/', '', $emp->phone_number);
@@ -369,16 +325,11 @@ class IncomingLetterController extends Controller
                     $targetPhone = '62' . substr($targetPhone, 1);
                 }
                 if (! $targetPhone) continue;
-                // Set session agar pegawai bisa klaim
-                wa_session_set($targetPhone, [
-                    'letter_id'      => $letter->id,
-                    'phase'          => 'claim_broadcast',
-                    'disposition_id' => $disp->id,
-                ]);
+                wa_multi_session_add_letter($targetPhone, $letter->id);
                 \App\Jobs\SendWhatsappMessageJob::dispatch(
                     to: $targetPhone,
                     mode: 'text',
-                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk*\n\nSurat *{$letterNum}* menunggu penanggung jawab di unit *{$disp->to_unit_name}*.\n\n*Instruksi:* {$note}\n\nBalas *1* untuk mengambil disposisi ini.",
+                    templateOrText: "*[Kirim Ulang] Disposisi Surat Masuk* 📨\n\nSurat *{$letterNum}* dari {$letter->sender} menunggu penanggung jawab di unit *{$disp->to_unit_name}*.\n\n*Instruksi:* {$note}\n\nKetik *DAFTAR* untuk melihat disposisi Anda dan memilih tindakan.",
                     variables: [],
                     correlationId: 'resend-disp-unit-' . $disp->id . '-emp-' . $emp->id
                 );
