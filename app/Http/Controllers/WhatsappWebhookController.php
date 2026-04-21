@@ -156,6 +156,12 @@ class WhatsappWebhookController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
+            // ── Pencarian pegawai berdasarkan nama ──────────────────────────
+            if ($session && ($session['phase'] ?? '') === 'search_employee') {
+                $this->handleEmployeeSearch($from, $msgText, $session);
+                return response()->json(['status' => 'ok']);
+            }
+
             // Catatan yang sedang ditunggu (expect)
             if ($session && isset($session['expect'])) {
                 $this->handleExpectedNote($from, $session, $msgText);
@@ -460,25 +466,64 @@ class WhatsappWebhookController extends Controller
                 $items
             );
         } elseif ($action === 'choose_employee') {
-            $employees = Employee::where('status', 'active')->limit(20)->get();
-            $items     = $employees->values()->map(fn($e, $i) => [
-                'num'         => $i + 1,
-                'title'       => $e->name,
-                'description' => $e->position ?? '',
-                'id'          => $e->id,
-            ])->all();
-
-            $session['phase']      = 'list_employee';
-            $session['list_items'] = collect($items)->pluck('id', 'num')->all();
-            $session['letter_id']  = $letterId;
+            $session['phase']     = 'search_employee';
+            $session['letter_id'] = $letterId;
             wa_session_set($from, $session);
 
-            app(WhatsappClient::class)->sendNumberedList(
+            app(WhatsappClient::class)->sendText(
                 $from,
-                __('Pilih pegawai tujuan disposisi surat :num:', ['num' => $letter?->letter_number ?? '-']),
-                $items
+                __('Ketik nama pegawai yang ingin dituju (minimal 2 karakter):')
             );
         }
+    }
+
+    /**
+     * Cari pegawai berdasarkan nama dan tampilkan hasil sebagai daftar bernomor.
+     */
+    private function handleEmployeeSearch(string $from, string $keyword, array $session): void
+    {
+        $keyword = trim($keyword);
+        if (mb_strlen($keyword) < 2) {
+            app(WhatsappClient::class)->sendText($from, __('Nama terlalu pendek. Ketik minimal 2 karakter.'));
+            return;
+        }
+
+        $employees = Employee::where('status', 'active')
+            ->where('name', 'like', '%' . $keyword . '%')
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        if ($employees->isEmpty()) {
+            app(WhatsappClient::class)->sendText(
+                $from,
+                __('Tidak ada pegawai dengan nama ":keyword". Coba kata kunci lain.', ['keyword' => $keyword])
+            );
+            return;
+        }
+
+        $items = $employees->values()->map(fn($e, $i) => [
+            'num'         => $i + 1,
+            'title'       => $e->name,
+            'description' => $e->position ?? '',
+            'id'          => $e->id,
+        ])->all();
+
+        $session['phase']      = 'list_employee';
+        $session['list_items'] = collect($items)->pluck('id', 'num')->all();
+        wa_session_set($from, $session);
+
+        $letterId = $session['letter_id'] ?? null;
+        $letter   = $letterId ? \App\Models\IncomingLetter::find($letterId) : null;
+
+        app(WhatsappClient::class)->sendNumberedList(
+            $from,
+            __('Hasil ":keyword" – pilih pegawai tujuan disposisi surat :num:', [
+                'keyword' => $keyword,
+                'num'     => $letter?->letter_number ?? '-',
+            ]),
+            $items
+        );
     }
 
     /**
