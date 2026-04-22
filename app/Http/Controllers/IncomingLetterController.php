@@ -113,12 +113,16 @@ class IncomingLetterController extends Controller
         try {
             $pimpinanPhone = $this->resolvePimpinanPhone();
             if ($pimpinanPhone) {
+                $docUrl = $letter->archive_external_id
+                    ? rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $letter->archive_external_id . '/view'
+                    : '-';
+
                 $variables = [
                     $letter->letter_number,
                     $letter->sender,
                     $letter->subject,
                     $letter->received_date?->translatedFormat('d M Y') ?? $letter->received_date?->toDateString(),
-                    route('incoming_letters.show', $letter->id), // inline document link as body placeholder
+                    $docUrl,
                 ];
 
                 // Multi-letter tracking – tambah ke daftar pending pimpinan
