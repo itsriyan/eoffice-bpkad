@@ -261,12 +261,16 @@ class IncomingLetterController extends Controller
             if (!$pimpinanPhone) {
                 return back()->with('error', __('Nomor pimpinan tidak ditemukan.'));
             }
+            $docUrl = $incoming_letter->archive_external_id
+                ? rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $incoming_letter->archive_external_id . '/view'
+                : '-';
+
             $variables = [
                 $incoming_letter->letter_number,
                 $incoming_letter->sender,
                 $incoming_letter->subject,
                 $incoming_letter->received_date?->translatedFormat('d M Y') ?? $incoming_letter->received_date?->toDateString(),
-                route('incoming_letters.show', $incoming_letter->id),
+                $docUrl,
             ];
             // Tambahkan ke daftar pending; JANGAN set session – user mulai dari DAFTAR
             wa_multi_session_add_letter($pimpinanPhone, $incoming_letter->id);
