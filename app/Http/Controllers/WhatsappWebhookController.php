@@ -1401,7 +1401,7 @@ class WhatsappWebhookController extends Controller
 
         // URL dokumen arsip
         if ($letter->archive_external_id) {
-            $docUrl  = rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $letter->archive_external_id;
+            $docUrl  = rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $letter->archive_external_id . '/view';
             $lines[] = "*Dokumen:* {$docUrl}";
         }
 
