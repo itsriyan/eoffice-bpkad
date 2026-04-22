@@ -138,6 +138,12 @@ class WhatsappWebhookController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
+            // ── CARI SURAT command ─────────────────────────────────────────
+            if (preg_match('/^CARI SURAT$/i', $msgText)) {
+                $this->handleCariSurat($from);
+                return response()->json(['status' => 'ok']);
+            }
+
             // BANTUAN command
             if (preg_match('/^BANTUAN$/i', $msgText)) {
                 $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
@@ -228,6 +234,12 @@ class WhatsappWebhookController extends Controller
                 } else {
                     app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk batalkan atau *2* untuk lanjutkan.'));
                 }
+                return response()->json(['status' => 'ok']);
+            }
+
+            // ── Phase: pencarian surat (CARI SURAT command) ───────────────
+            if ($session && ($session['phase'] ?? '') === 'awaiting_letter_search') {
+                $this->handleLetterSearch($from, $msgText);
                 return response()->json(['status' => 'ok']);
             }
 
@@ -410,10 +422,7 @@ class WhatsappWebhookController extends Controller
                 'ts'        => now()->timestamp,
             ]);
 
-            $text = "*Surat: {$letter->letter_number}*\n"
-                . "Dari: {$letter->sender}\n"
-                . "Perihal: {$letter->subject}\n"
-                . "Tgl Terima: " . ($letter->received_date?->translatedFormat('d M Y') ?? '-') . "\n\n"
+            $text = $this->buildLetterDetailText($letter) . "\n\n"
                 . "Pilih tindakan:\n"
                 . "*1* - Disposisi\n"
                 . "*2* - Arsipkan\n"
@@ -495,6 +504,7 @@ class WhatsappWebhookController extends Controller
 
         $text = "*Perintah yang tersedia:*\n"
             . "*DAFTAR* - Lihat semua surat pending\n"
+            . "*CARI SURAT* - Cari surat berdasarkan nomor\n"
             . "*BATAL* - Batalkan alur saat ini\n"
             . "*GANTI* - Pindah ke surat lain\n"
             . "*BANTUAN* - Tampilkan pesan ini"
@@ -506,6 +516,82 @@ class WhatsappWebhookController extends Controller
         }
 
         app(WhatsappClient::class)->sendText($from, $text);
+    }
+
+    // =========================================================================
+    // CARI SURAT handlers
+    // =========================================================================
+
+    /**
+     * Memulai alur pencarian surat – minta nomor surat dari user.
+     */
+    private function handleCariSurat(string $from): void
+    {
+        wa_session_set($from, [
+            'phase' => 'awaiting_letter_search',
+            'ts'    => now()->timestamp,
+        ]);
+        app(WhatsappClient::class)->sendText(
+            $from,
+            "🔍 *Cari Surat*\nKetik nomor surat yang ingin dicari, lalu kirim.\n\nContoh: _001/KEU/2026_\n\nKetik *BATAL* untuk membatalkan."
+        );
+    }
+
+    /**
+     * Proses input nomor surat dari user.
+     * Tampilkan detail surat + riwayat disposisi.
+     * Tidak mengubah sesi aktif (read-only).
+     */
+    private function handleLetterSearch(string $from, string $input): void
+    {
+        $keyword = trim($input);
+
+        if (empty($keyword)) {
+            app(WhatsappClient::class)->sendText($from, __('Nomor surat tidak boleh kosong. Ketik nomor surat atau *BATAL*.'));
+            return;
+        }
+
+        // Cari surat: exact match dulu, lalu partial
+        $letter = \App\Models\IncomingLetter::where('letter_number', $keyword)
+            ->withTrashed()
+            ->first();
+
+        if (! $letter) {
+            $letter = \App\Models\IncomingLetter::where('letter_number', 'like', '%' . $keyword . '%')
+                ->withTrashed()
+                ->orderByDesc('id')
+                ->first();
+        }
+
+        if (! $letter) {
+            app(WhatsappClient::class)->sendText(
+                $from,
+                "❌ Surat dengan nomor *{$keyword}* tidak ditemukan.\n\nCoba periksa kembali nomor surat, atau ketik *CARI SURAT* untuk coba lagi."
+            );
+            wa_session_forget($from);
+            return;
+        }
+
+        $detail = $this->buildLetterDetailText($letter);
+
+        // Tambahkan keterangan jika surat sudah dihapus (soft delete)
+        if ($letter->trashed()) {
+            $detail .= "\n⚠️ _Surat ini telah dihapus dari sistem._";
+        }
+
+        app(WhatsappClient::class)->sendText($from, $detail);
+
+        wa_session_forget($from);
+
+        // Ingatkan jika masih ada surat pending
+        $multi = wa_multi_session_get($from);
+        if (! empty($multi['letters'])) {
+            $count = count($multi['letters']);
+            app(WhatsappClient::class)->sendText(
+                $from,
+                "Ketik *DAFTAR* untuk kembali ke daftar *{$count}* surat pending Anda."
+            );
+        }
     }
 
     // =========================================================================
@@ -1044,11 +1130,12 @@ class WhatsappWebhookController extends Controller
     private function sendStaffActionMenu(string $from, \App\Models\IncomingLetter $letter, \App\Models\Disposition $disp): void
     {
         $status = $disp->status;
-        $header = "*Surat: {$letter->letter_number}*\n"
-            . "Dari: {$letter->sender}\n"
-            . "Perihal: {$letter->subject}\n"
-            . "Instruksi: " . ($disp->instruction ?? '-') . "\n"
-            . "Status Disposisi: " . $disp->status->label() . "\n\n";
+
+        $header = $this->buildLetterDetailText($letter) . "\n"
+            . "─────────────────────\n"
+            . "*Disposisi Anda (#" . $disp->sequence . ")*\n"
+            . "*Instruksi:* " . ($disp->instruction ?? '-') . "\n"
+            . "*Status Disposisi:* " . $disp->status->label() . "\n\n";
 
         if (in_array($status, [\App\Enums\DispositionStatus::New, \App\Enums\DispositionStatus::Sent], true)) {
             $menu = "Pilih tindakan:\n*1* - Ambil Disposisi";
@@ -1230,6 +1317,67 @@ class WhatsappWebhookController extends Controller
             '1' => __('Unit Kerja'),
             '2' => __('Pegawai'),
         ]);
+    }
+
+    // ─── Shared detail builder ────────────────────────────────────────────────
+
+    /**
+     * Bangun teks detail surat yang seragam untuk pimpinan & pegawai.
+     * Termasuk semua field surat, URL dokumen (jika ada), dan riwayat disposisi.
+     */
+    private function buildLetterDetailText(\App\Models\IncomingLetter $letter): string
+    {
+        $lines   = [];
+        $lines[] = '*Detail Surat Masuk* 📄';
+        $lines[] = '─────────────────────';
+        $lines[] = "*No. Surat:* {$letter->letter_number}";
+        $lines[] = '*Tgl. Surat:* ' . ($letter->letter_date?->translatedFormat('d M Y') ?? '-');
+        $lines[] = '*Tgl. Terima:* ' . ($letter->received_date?->translatedFormat('d M Y') ?? '-');
+        $lines[] = "*Pengirim:* {$letter->sender}";
+        if ($letter->origin_agency) {
+            $lines[] = "*Instansi Asal:* {$letter->origin_agency}";
+        }
+        $lines[] = "*Perihal:* {$letter->subject}";
+        if ($letter->summary) {
+            $lines[] = "*Ringkasan:* {$letter->summary}";
+        }
+        if ($letter->classification_code) {
+            $lines[] = "*Kode Klas.:* {$letter->classification_code}";
+        }
+        if ($letter->security_level) {
+            $lines[] = "*Keamanan:* {$letter->security_level}";
+        }
+        if ($letter->speed_level) {
+            $lines[] = "*Kecepatan:* {$letter->speed_level}";
+        }
+        $lines[] = '*Status Surat:* ' . $letter->status->label();
+
+        // URL dokumen arsip
+        if ($letter->archive_external_id) {
+            $docUrl  = rtrim(config('e-office.arsip_api_url'), '/') . '/dokumen-arsip/' . $letter->archive_external_id;
+            $lines[] = "*Dokumen:* {$docUrl}";
+        }
+
+        // Riwayat disposisi
+        $dispositions = $letter->dispositions()->orderBy('sequence')->get();
+        if ($dispositions->isNotEmpty()) {
+            $lines[] = '─────────────────────';
+            $lines[] = '*Riwayat Disposisi:*';
+            foreach ($dispositions as $d) {
+                $target     = $d->to_unit_name ? "Unit: {$d->to_unit_name}" : ($d->to_name ?? '-');
+                $statusLabel = $d->status->label();
+                $row         = "  #{$d->sequence} {$target} [{$statusLabel}]";
+                if ($d->instruction) {
+                    $row .= "\n   Instruksi: {$d->instruction}";
+                }
+                if ($d->rejection_reason) {
+                    $row .= "\n   Alasan Tolak: {$d->rejection_reason}";
+                }
+                $lines[] = $row;
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     // ─── Helper ──────────────────────────────────────────────────────────────
