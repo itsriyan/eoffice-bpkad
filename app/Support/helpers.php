@@ -170,3 +170,55 @@ if (!function_exists('wa_rate_limit_exceeded')) {
         return $count >= $max;
     }
 }
+
+// ── Anti-spam: dedup by inboxid ──────────────────────────────────────────────
+if (!function_exists('wa_dedup_seen')) {
+    /**
+     * Cek apakah inboxid ini sudah pernah diproses sebelumnya.
+     * Return true → pesan duplikat, abaikan.
+     */
+    function wa_dedup_seen(string $phone, string $msgId): bool
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $key  = 'wa_dedup:' . $norm . ':' . md5($msgId);
+        return cache()->has($key);
+    }
+}
+
+if (!function_exists('wa_dedup_mark')) {
+    /**
+     * Tandai inboxid sebagai sudah diproses.
+     */
+    function wa_dedup_mark(string $phone, string $msgId, int $ttl = 60): void
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $key  = 'wa_dedup:' . $norm . ':' . md5($msgId);
+        cache()->put($key, 1, $ttl);
+    }
+}
+
+// ── Anti-spam: debounce per-user per-teks ────────────────────────────────────
+if (!function_exists('wa_debounce_seen')) {
+    /**
+     * Cek apakah teks yang sama sudah dikirim user ini dalam window debounce.
+     * Return true → terlalu cepat, abaikan.
+     */
+    function wa_debounce_seen(string $phone, string $text, int $windowSeconds = 5): bool
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $key  = 'wa_debounce:' . $norm . ':' . md5(mb_strtolower(trim($text)));
+        return cache()->has($key);
+    }
+}
+
+if (!function_exists('wa_debounce_mark')) {
+    /**
+     * Catat bahwa user mengirim teks ini sekarang (reset window).
+     */
+    function wa_debounce_mark(string $phone, string $text, int $windowSeconds = 5): void
+    {
+        $norm = preg_replace('/[^0-9]/', '', $phone);
+        $key  = 'wa_debounce:' . $norm . ':' . md5(mb_strtolower(trim($text)));
+        cache()->put($key, 1, $windowSeconds);
+    }
+}

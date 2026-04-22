@@ -102,210 +102,257 @@ class WhatsappWebhookController extends Controller
             return response()->json(['status' => 'ok']);
         }
 
-        $session = wa_session_get($from);
-        $multi   = wa_multi_session_get($from);
-
-        // ── Pesan teks ───────────────────────────────────────────────────────
-        if ($type === 'text') {
-            // ── DAFTAR command ────────────────────────────────────────────────
-            if (preg_match('/^DAFTAR$/i', $msgText)) {
-                $this->handleDaftar($from, $session, $multi);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── NEXT / PREV command (navigasi halaman DAFTAR) ─────────────────
-            if (preg_match('/^(NEXT|LANJUT)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
-                $page = ($session['daftar_page'] ?? 1) + 1;
-                $this->handleDaftar($from, $session, $multi, $page);
-                return response()->json(['status' => 'ok']);
-            }
-
-            if (preg_match('/^(PREV|KEMBALI)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
-                $page = max(1, ($session['daftar_page'] ?? 1) - 1);
-                $this->handleDaftar($from, $session, $multi, $page);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── BATAL command ─────────────────────────────────────────────────
-            if (preg_match('/^BATAL$/i', $msgText)) {
-                $this->handleBatal($from, $session);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── GANTI command (minta pindah surat saat mid-flow) ──────────────
-            if (preg_match('/^GANTI$/i', $msgText)) {
-                $this->handleGanti($from, $session, $multi);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── CARI SURAT command ─────────────────────────────────────────
-            if (preg_match('/^CARI SURAT$/i', $msgText)) {
-                $this->handleCariSurat($from);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // BANTUAN command
-            if (preg_match('/^BANTUAN$/i', $msgText)) {
-                $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
-                if (wa_rate_limit_exceeded($from, 'help', $limit)) {
-                    app(WhatsappClient::class)->sendText($from, __('Terlalu sering meminta bantuan. Coba lagi sebentar.'));
-                    $this->logRateLimit($from, 'rate-help', $msgId, 429);
-                    return response()->json(['status' => 'ok']);
-                }
-                wa_rate_limit_hit($from, 'help');
-                $this->sendHelpText($from, $session, $multi);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // SWITCH command (lama – tetap didukung)
-            if (preg_match('/^SWITCH\s+(.+)/i', $msgText, $m)) {
-                $limit = config('e-office.whatsapp.rate_limit.switch_per_minute');
-                if (wa_rate_limit_exceeded($from, 'switch', $limit)) {
-                    app(WhatsappClient::class)->sendText($from, __('Terlalu sering ganti konteks. Tunggu sebentar.'));
-                    $this->logRateLimit($from, 'rate-switch', $msgId, 429);
-                    return response()->json(['status' => 'ok']);
-                }
-                wa_rate_limit_hit($from, 'switch');
-                $targetNumber = trim($m[1]);
-                $letter       = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
-                if ($letter && $multi && in_array($letter->id, $multi['letters'], true)) {
-                    wa_multi_session_set_active($from, $letter->id);
-                    wa_session_set($from, [
-                        'letter_id' => $letter->id,
-                        'phase'     => 'awaiting_action',
-                        'ts'        => now()->timestamp,
-                    ]);
-                    app(WhatsappClient::class)->sendText($from, __('Konteks berpindah ke surat :num', ['num' => $letter->letter_number]));
-                } else {
-                    app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan atau tidak dalam daftar pending.'));
-                }
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Phase: pilih surat dari daftar (DAFTAR command) ──────────────
-            if ($session && ($session['phase'] ?? '') === 'select_letter') {
-                if (preg_match('/^\s*(\d+)\s*$/', $msgText, $m)) {
-                    $this->handleSelectLetter($from, (int) $m[1], $session);
-                } else {
-                    app(WhatsappClient::class)->sendText($from, __('Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.'));
-                }
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Phase: konfirmasi GANTI saat mid-flow ────────────────────────
-            if ($session && ($session['phase'] ?? '') === 'confirm_switch') {
-                if (preg_match('/^\s*1\s*$/', $msgText)) {
-                    // Lanjutkan alur sebelumnya
-                    if (wa_session_restore_snapshot($from)) {
-                        $restored = wa_session_get($from);
-                        $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
-                        app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
-                    } else {
-                        wa_session_forget($from);
-                        app(WhatsappClient::class)->sendText($from, __('Sesi sebelumnya sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
-                    }
-                } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
-                    // Batalkan alur lama, tampilkan daftar
-                    wa_session_forget_snapshot($from);
-                    wa_session_forget($from);
-                    $this->handleDaftar($from, null, wa_multi_session_get($from));
-                } else {
-                    app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk lanjutkan atau *2* untuk pindah surat.'));
-                }
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Phase: konfirmasi BATAL saat mid-flow ────────────────────────
-            if ($session && ($session['phase'] ?? '') === 'confirm_cancel') {
-                if (preg_match('/^\s*1\s*$/', $msgText)) {
-                    // Ya, batalkan
-                    wa_session_forget($from);
-                    app(WhatsappClient::class)->sendText($from, __('Alur dibatalkan. Ketik *DAFTAR* untuk membuka daftar surat, atau *BANTUAN* untuk bantuan.'));
-                } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
-                    // Tidak, lanjutkan – restore
-                    if (wa_session_restore_snapshot($from)) {
-                        $restored = wa_session_get($from);
-                        $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
-                        app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
-                    } else {
-                        wa_session_forget($from);
-                        app(WhatsappClient::class)->sendText($from, __('Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
-                    }
-                } else {
-                    app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk batalkan atau *2* untuk lanjutkan.'));
-                }
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Phase: pencarian surat (CARI SURAT command) ───────────────
-            if ($session && ($session['phase'] ?? '') === 'awaiting_letter_search') {
-                $this->handleLetterSearch($from, $msgText);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Pencarian pegawai berdasarkan nama ──────────────────────────
-            if ($session && ($session['phase'] ?? '') === 'search_employee') {
-                $this->handleEmployeeSearch($from, $msgText, $session);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // Catatan yang sedang ditunggu (expect)
-            if ($session && isset($session['expect'])) {
-                $this->handleExpectedNote($from, $session, $msgText);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Menu angka – pilih tipe disposisi ────────────────────────────
-            // Harus dicek SEBELUM menu tindakan surat agar "1"/"2" tidak disalahartikan
-            if (preg_match('/^\s*([1-2])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'choose_disposition_type') {
-                $choice = $m[1] === '1' ? 'choose_unit' : 'choose_employee';
-                $this->handleButtonChoice($from, $choice);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Menu angka – pilih unit/pegawai dari daftar ──────────────────
-            if (preg_match('/^\s*(\d+)\s*$/', $msgText, $m) && $session && in_array($session['phase'] ?? '', ['list_unit', 'list_employee'], true)) {
-                $this->handleNumberedListSelection($from, (int) $m[1], $session, $msgId);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Menu angka – klaim disposisi ─────────────────────────────────
-            if (preg_match('/^\s*1\s*$/', $msgText) && $session && ($session['phase'] ?? '') === 'claim_broadcast') {
-                $limit = config('e-office.whatsapp.rate_limit.claim_per_minute');
-                if (wa_rate_limit_exceeded($from, 'claim', $limit)) {
-                    app(WhatsappClient::class)->sendText($from, __('Terlalu banyak percobaan klaim. Coba lagi nanti.'));
-                    $this->logRateLimit($from, 'rate-claim', $msgId, 429);
-                    return response()->json(['status' => 'ok']);
-                }
-                wa_rate_limit_hit($from, 'claim');
-                $this->handleClaimDisposition($from, ['id' => $msgId]);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Menu angka – tindakan pegawai (awaiting_staff_action) ────────
-            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_staff_action') {
-                $this->handleStaffAction($from, (int) $m[1], $session);
-                return response()->json(['status' => 'ok']);
-            }
-
-            // ── Menu angka – tindakan surat (1/2/3) ──────────────────────────
-            if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_action') {
-                switch ($m[1]) {
-                    case '1':
-                        $this->handleDisposisi($from, ['id' => $msgId]);
-                        break;
-                    case '2':
-                        $this->requestArchiveNote($from, ['id' => $msgId]);
-                        break;
-                    case '3':
-                        $this->requestRejectNote($from, ['id' => $msgId]);
-                        break;
-                }
-                return response()->json(['status' => 'ok']);
-            }
+        // ── Anti-spam layer 1: dedup by inboxid ──────────────────────────────
+        // Mencegah pesan yang sama diproses dua kali (Fonnte retry / double delivery).
+        if ($msgId && wa_dedup_seen($from, (string) $msgId)) {
+            Log::channel('whatsapp')->info('WA webhook – duplicate inboxid, skipped', [
+                'from' => $from,
+                'inboxid' => $msgId,
+            ]);
+            return response()->json(['status' => 'ok']);
         }
 
-        return response()->json(['status' => 'ok']);
+        // ── Anti-spam layer 2: per-user text debounce ─────────────────────────
+        // Mencegah user mengirim perintah/pilihan yang sama berulang kali dalam window singkat
+        // karena server lambat merespons (high traffic). Window dapat dikonfigurasi.
+        if ($msgText !== '') {
+            $debounceSeconds = (int) config('e-office.whatsapp.debounce_seconds', 5);
+            if (wa_debounce_seen($from, $msgText, $debounceSeconds)) {
+                Log::channel('whatsapp')->info('WA webhook – debounced duplicate text, skipped', [
+                    'from' => $from,
+                    'text' => $msgText,
+                ]);
+                return response()->json(['status' => 'ok']);
+            }
+            wa_debounce_mark($from, $msgText, $debounceSeconds);
+        }
+
+        // ── Anti-spam layer 3: per-user processing lock ───────────────────────
+        // Mencegah dua pesan dari nomor yang sama diproses bersamaan (race condition).
+        // Lock diambil max 5 detik; jika tidak bisa → pesan sebelumnya masih diproses, skip.
+        $lock = \Illuminate\Support\Facades\Cache::lock('wa_proc:' . $from, 5);
+        if (! $lock->get()) {
+            Log::channel('whatsapp')->info('WA webhook – processing lock busy, skipped', [
+                'from' => $from,
+                'text' => $msgText,
+            ]);
+            return response()->json(['status' => 'ok']);
+        }
+
+        try {
+            // Tandai inboxid sebagai sudah diproses (setelah lock berhasil)
+            if ($msgId) {
+                $dedupTtl = (int) config('e-office.whatsapp.dedup_ttl_seconds', 60);
+                wa_dedup_mark($from, (string) $msgId, $dedupTtl);
+            }
+
+            $session = wa_session_get($from);
+            $multi   = wa_multi_session_get($from);
+
+            // ── Pesan teks ───────────────────────────────────────────────────────
+            if ($type === 'text') {
+                // ── DAFTAR command ────────────────────────────────────────────────
+                if (preg_match('/^DAFTAR$/i', $msgText)) {
+                    $this->handleDaftar($from, $session, $multi);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── NEXT / PREV command (navigasi halaman DAFTAR) ─────────────────
+                if (preg_match('/^(NEXT|LANJUT)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
+                    $page = ($session['daftar_page'] ?? 1) + 1;
+                    $this->handleDaftar($from, $session, $multi, $page);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                if (preg_match('/^(PREV|KEMBALI)$/i', $msgText) && $session && ($session['phase'] ?? '') === 'select_letter') {
+                    $page = max(1, ($session['daftar_page'] ?? 1) - 1);
+                    $this->handleDaftar($from, $session, $multi, $page);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── BATAL command ─────────────────────────────────────────────────
+                if (preg_match('/^BATAL$/i', $msgText)) {
+                    $this->handleBatal($from, $session);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── GANTI command (minta pindah surat saat mid-flow) ──────────────
+                if (preg_match('/^GANTI$/i', $msgText)) {
+                    $this->handleGanti($from, $session, $multi);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── CARI SURAT command ─────────────────────────────────────────
+                if (preg_match('/^CARI SURAT$/i', $msgText)) {
+                    $this->handleCariSurat($from);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // BANTUAN command
+                if (preg_match('/^BANTUAN$/i', $msgText)) {
+                    $limit = config('e-office.whatsapp.rate_limit.help_per_minute');
+                    if (wa_rate_limit_exceeded($from, 'help', $limit)) {
+                        app(WhatsappClient::class)->sendText($from, __('Terlalu sering meminta bantuan. Coba lagi sebentar.'));
+                        $this->logRateLimit($from, 'rate-help', $msgId, 429);
+                        return response()->json(['status' => 'ok']);
+                    }
+                    wa_rate_limit_hit($from, 'help');
+                    $this->sendHelpText($from, $session, $multi);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // SWITCH command (lama – tetap didukung)
+                if (preg_match('/^SWITCH\s+(.+)/i', $msgText, $m)) {
+                    $limit = config('e-office.whatsapp.rate_limit.switch_per_minute');
+                    if (wa_rate_limit_exceeded($from, 'switch', $limit)) {
+                        app(WhatsappClient::class)->sendText($from, __('Terlalu sering ganti konteks. Tunggu sebentar.'));
+                        $this->logRateLimit($from, 'rate-switch', $msgId, 429);
+                        return response()->json(['status' => 'ok']);
+                    }
+                    wa_rate_limit_hit($from, 'switch');
+                    $targetNumber = trim($m[1]);
+                    $letter       = \App\Models\IncomingLetter::where('letter_number', $targetNumber)->first();
+                    if ($letter && $multi && in_array($letter->id, $multi['letters'], true)) {
+                        wa_multi_session_set_active($from, $letter->id);
+                        wa_session_set($from, [
+                            'letter_id' => $letter->id,
+                            'phase'     => 'awaiting_action',
+                            'ts'        => now()->timestamp,
+                        ]);
+                        app(WhatsappClient::class)->sendText($from, __('Konteks berpindah ke surat :num', ['num' => $letter->letter_number]));
+                    } else {
+                        app(WhatsappClient::class)->sendText($from, __('Surat tidak ditemukan atau tidak dalam daftar pending.'));
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Phase: pilih surat dari daftar (DAFTAR command) ──────────────
+                if ($session && ($session['phase'] ?? '') === 'select_letter') {
+                    if (preg_match('/^\s*(\d+)\s*$/', $msgText, $m)) {
+                        $this->handleSelectLetter($from, (int) $m[1], $session);
+                    } else {
+                        app(WhatsappClient::class)->sendText($from, __('Balas dengan angka sesuai nomor surat, atau ketik *BATAL*.'));
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Phase: konfirmasi GANTI saat mid-flow ────────────────────────
+                if ($session && ($session['phase'] ?? '') === 'confirm_switch') {
+                    if (preg_match('/^\s*1\s*$/', $msgText)) {
+                        // Lanjutkan alur sebelumnya
+                        if (wa_session_restore_snapshot($from)) {
+                            $restored = wa_session_get($from);
+                            $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
+                            app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
+                        } else {
+                            wa_session_forget($from);
+                            app(WhatsappClient::class)->sendText($from, __('Sesi sebelumnya sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
+                        }
+                    } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
+                        // Batalkan alur lama, tampilkan daftar
+                        wa_session_forget_snapshot($from);
+                        wa_session_forget($from);
+                        $this->handleDaftar($from, null, wa_multi_session_get($from));
+                    } else {
+                        app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk lanjutkan atau *2* untuk pindah surat.'));
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Phase: konfirmasi BATAL saat mid-flow ────────────────────────
+                if ($session && ($session['phase'] ?? '') === 'confirm_cancel') {
+                    if (preg_match('/^\s*1\s*$/', $msgText)) {
+                        // Ya, batalkan
+                        wa_session_forget($from);
+                        app(WhatsappClient::class)->sendText($from, __('Alur dibatalkan. Ketik *DAFTAR* untuk membuka daftar surat, atau *BANTUAN* untuk bantuan.'));
+                    } elseif (preg_match('/^\s*2\s*$/', $msgText)) {
+                        // Tidak, lanjutkan – restore
+                        if (wa_session_restore_snapshot($from)) {
+                            $restored = wa_session_get($from);
+                            $num      = \App\Models\IncomingLetter::find($restored['letter_id'] ?? 0)?->letter_number ?? '?';
+                            app(WhatsappClient::class)->sendText($from, "Kembali ke alur surat *{$num}*. Silakan lanjutkan.");
+                        } else {
+                            wa_session_forget($from);
+                            app(WhatsappClient::class)->sendText($from, __('Sesi sudah kedaluwarsa. Ketik *DAFTAR* untuk mulai.'));
+                        }
+                    } else {
+                        app(WhatsappClient::class)->sendText($from, __('Balas *1* untuk batalkan atau *2* untuk lanjutkan.'));
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Phase: pencarian surat (CARI SURAT command) ───────────────
+                if ($session && ($session['phase'] ?? '') === 'awaiting_letter_search') {
+                    $this->handleLetterSearch($from, $msgText);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Pencarian pegawai berdasarkan nama ──────────────────────────
+                if ($session && ($session['phase'] ?? '') === 'search_employee') {
+                    $this->handleEmployeeSearch($from, $msgText, $session);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // Catatan yang sedang ditunggu (expect)
+                if ($session && isset($session['expect'])) {
+                    $this->handleExpectedNote($from, $session, $msgText);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Menu angka – pilih tipe disposisi ────────────────────────────
+                // Harus dicek SEBELUM menu tindakan surat agar "1"/"2" tidak disalahartikan
+                if (preg_match('/^\s*([1-2])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'choose_disposition_type') {
+                    $choice = $m[1] === '1' ? 'choose_unit' : 'choose_employee';
+                    $this->handleButtonChoice($from, $choice);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Menu angka – pilih unit/pegawai dari daftar ──────────────────
+                if (preg_match('/^\s*(\d+)\s*$/', $msgText, $m) && $session && in_array($session['phase'] ?? '', ['list_unit', 'list_employee'], true)) {
+                    $this->handleNumberedListSelection($from, (int) $m[1], $session, $msgId);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Menu angka – klaim disposisi ─────────────────────────────────
+                if (preg_match('/^\s*1\s*$/', $msgText) && $session && ($session['phase'] ?? '') === 'claim_broadcast') {
+                    $limit = config('e-office.whatsapp.rate_limit.claim_per_minute');
+                    if (wa_rate_limit_exceeded($from, 'claim', $limit)) {
+                        app(WhatsappClient::class)->sendText($from, __('Terlalu banyak percobaan klaim. Coba lagi nanti.'));
+                        $this->logRateLimit($from, 'rate-claim', $msgId, 429);
+                        return response()->json(['status' => 'ok']);
+                    }
+                    wa_rate_limit_hit($from, 'claim');
+                    $this->handleClaimDisposition($from, ['id' => $msgId]);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Menu angka – tindakan pegawai (awaiting_staff_action) ────────
+                if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_staff_action') {
+                    $this->handleStaffAction($from, (int) $m[1], $session);
+                    return response()->json(['status' => 'ok']);
+                }
+
+                // ── Menu angka – tindakan surat (1/2/3) ──────────────────────────
+                if (preg_match('/^\s*([1-3])\s*$/', $msgText, $m) && $session && ($session['phase'] ?? '') === 'awaiting_action') {
+                    switch ($m[1]) {
+                        case '1':
+                            $this->handleDisposisi($from, ['id' => $msgId]);
+                            break;
+                        case '2':
+                            $this->requestArchiveNote($from, ['id' => $msgId]);
+                            break;
+                        case '3':
+                            $this->requestRejectNote($from, ['id' => $msgId]);
+                            break;
+                    }
+                    return response()->json(['status' => 'ok']);
+                }
+            }
+
+            return response()->json(['status' => 'ok']);
+        } finally {
+            $lock->release();
+        }
     }
 
     // =========================================================================

@@ -11,10 +11,14 @@ return [
         'verify_token' => env('E_OFFICE_WA_VERIFY_TOKEN', 'change-me'),
         'rate_limit' => [
             'switch_per_minute' => env('E_OFFICE_WA_RATE_SWITCH', 12),
-            'help_per_minute' => env('E_OFFICE_WA_RATE_HELP', 6),
-            'claim_per_minute' => env('E_OFFICE_WA_RATE_CLAIM', 20),
-            'note_per_minute' => env('E_OFFICE_WA_RATE_NOTE', 30),
+            'help_per_minute'   => env('E_OFFICE_WA_RATE_HELP', 6),
+            'claim_per_minute'  => env('E_OFFICE_WA_RATE_CLAIM', 20),
+            'note_per_minute'   => env('E_OFFICE_WA_RATE_NOTE', 30),
         ],
+        // Anti-spam: abaikan pesan teks yang sama dari nomor yang sama dalam window ini (detik)
+        'debounce_seconds'     => env('E_OFFICE_WA_DEBOUNCE_SECONDS', 5),
+        // Anti-spam: simpan inboxid yang sudah diproses selama N detik untuk mencegah duplikat
+        'dedup_ttl_seconds'    => env('E_OFFICE_WA_DEDUP_TTL', 60),
         // Teks template notifikasi surat masuk (Fonnte teks biasa)
         // TIDAK mengandung menu tindakan – pimpinan harus ketik DAFTAR untuk mulai.
         'templates' => [
